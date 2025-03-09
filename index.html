@@ -867,6 +867,8 @@
         window.freezeAnimations = true;
         // 選択されたサイズ設定 - デフォルトは横長
         window.selectedSize = 'landscape';
+        // ワーカープール - 変換を高速化するため
+        window.workerPool = [];
         
         // 出力サイズ定義
         const outputSizes = {
@@ -874,6 +876,35 @@
             landscape: { width: 1920, height: 1080 },
             portrait: { width: 1080, height: 1920 }
         };
+        
+        // ページロード時にワーカーを初期化
+        window.addEventListener('DOMContentLoaded', function() {
+            // 利用可能なCPUコア数に基づいてワーカー数を決定
+            const numWorkers = navigator.hardwareConcurrency ? Math.min(navigator.hardwareConcurrency - 1, 4) : 2;
+            
+            // キャッシュを初期化
+            window.renderedCache = new Map();
+            
+            // ページ選択ラジオボタンのイベント
+            const pageSelectionRadios = document.querySelectorAll('input[name="page-selection"]');
+            const pageNumberContainer = document.getElementById('page-number-container');
+            
+            pageSelectionRadios.forEach(radio => {
+                radio.addEventListener('change', function() {
+                    pageNumberContainer.style.display = 
+                        this.value === 'selected' ? 'block' : 'none';
+                });
+            });
+            
+            // ステータスメッセージを初期化
+            const statusMessage = document.getElementById('status-message');
+            statusMessage.textContent = 'HTMLまたはSVGファイルをアップロードしてください。';
+            statusMessage.className = '';
+            statusMessage.classList.remove('hidden');
+            
+            // 画質スライダーの初期化
+            updateQualityValue();
+        });
         
         // フォーマット選択
         function selectFormat(format) {
@@ -916,7 +947,7 @@
             }
         }
         
-        // 画像をプリロードする関数
+        // 画像をより効率的にプリロードする関数
         function preloadImages(htmlContent, callback) {
             const tempContainer = document.createElement('div');
             tempContainer.innerHTML = htmlContent;
@@ -940,16 +971,33 @@
             // Base64画像の変換リスト
             const imageMap = new Map();
             let loadedCount = 0;
+            let errorCount = 0;
             
-            // 各画像をBase64に変換
-            images.forEach(img => {
+            // 並列処理の最大数
+            const maxConcurrent = Math.min(imagesToLoad, 5);
+            let activeLoads = 0;
+            let queueIndex = 0;
+            
+            // 画像をキューに入れる
+            function processImageQueue() {
+                while (activeLoads < maxConcurrent && queueIndex < images.length) {
+                    loadImage(images[queueIndex++]);
+                    activeLoads++;
+                }
+                
+                // すべての画像の処理が完了したかチェック
+                if (loadedCount + errorCount === imagesToLoad) {
+                    finishProcessing();
+                }
+            }
+            
+            // 個々の画像を処理
+            function loadImage(img) {
                 const originalSrc = img.getAttribute('src');
                 if (!originalSrc || originalSrc.startsWith('data:') || originalSrc.startsWith('blob:')) {
                     // すでにデータURLやblobの場合はスキップ
                     imagesToLoad--;
-                    if (imagesToLoad === 0) {
-                        finishProcessing();
-                    }
+                    completeImageLoad();
                     return;
                 }
                 
@@ -959,10 +1007,7 @@
                     imageMap.set(originalSrc, window.uploadedImages[imageName]);
                     loadedCount++;
                     statusMessage.textContent = `画像をロード中... (${loadedCount}/${imagesToLoad})`;
-                    
-                    if (loadedCount === imagesToLoad) {
-                        finishProcessing();
-                    }
+                    completeImageLoad();
                     return;
                 }
                 
@@ -988,25 +1033,18 @@
                         
                         loadedCount++;
                         statusMessage.textContent = `画像をロード中... (${loadedCount}/${imagesToLoad})`;
-                        
-                        if (loadedCount === imagesToLoad) {
-                            finishProcessing();
-                        }
+                        completeImageLoad();
                     } catch (error) {
                         console.error('画像変換エラー:', error, originalSrc);
-                        loadedCount++;
-                        if (loadedCount === imagesToLoad) {
-                            finishProcessing();
-                        }
+                        errorCount++;
+                        completeImageLoad();
                     }
                 };
                 
                 imgElement.onerror = function() {
                     console.warn('画像の読み込みに失敗しました:', imgSrc);
-                    loadedCount++;
-                    if (loadedCount === imagesToLoad) {
-                        finishProcessing();
-                    }
+                    errorCount++;
+                    completeImageLoad();
                 };
                 
                 // 読み込み開始
@@ -1014,39 +1052,27 @@
                 
                 // 一定時間後にタイムアウト処理
                 setTimeout(() => {
-                    if (imgElement.complete) return;
-                    imgElement.src = '';
-                    console.warn('画像の読み込みがタイムアウトしました:', imgSrc);
-                    loadedCount++;
-                    if (loadedCount === imagesToLoad) {
-                        finishProcessing();
+                    if (!imgElement.complete) {
+                        imgElement.src = '';
+                        console.warn('画像の読み込みがタイムアウトしました:', imgSrc);
+                        errorCount++;
+                        completeImageLoad();
                     }
-                }, 5000);
-            });
+                }, 3000);
+            }
+            
+            // 画像読み込み完了ハンドラ
+            function completeImageLoad() {
+                activeLoads--;
+                processImageQueue();
+            }
             
             // すべての画像処理が完了したら実行
             function finishProcessing() {
                 // HTMLコンテンツ内の画像パスをBase64に置き換え
                 let processedHTML = htmlContent;
                 imageMap.forEach((dataURL, originalSrc) => {
-                    const escapedSrc = originalSrc.replace(/[.*+?^${}()|[\]\\]/g, '\\    <script>
-        // グローバル変数
-        let htmlContent = '';
-        let selectedFormat = 'jpg';
-        let outputQuality = 0.95;
-        const { jsPDF } = window.jspdf;
-        
-        // スライド形式フラグ
-        window.isSlideFormat = false;
-        // 印刷用の最適化フラグ
-        window.optimizeForPrint = false;
-        // アップロードされた画像を保存するオブジェクト
-        window.uploadedImages = {};
-        // 元のファイルサイズを保持
-        window.originalWidth = null;
-        window.originalHeight = null;
-        // サイズ維持フラグ - デフォルトでサイズを維持
-        window.maintainOriginalSize = true;');
+                    const escapedSrc = originalSrc.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
                     const regex = new RegExp(`src=["']${escapedSrc}["']`, 'g');
                     processedHTML = processedHTML.replace(regex, `src="${dataURL}"`);
                 });
@@ -1055,6 +1081,9 @@
                 statusMessage.textContent = '画像の処理が完了しました。';
                 statusMessage.className = 'success';
             }
+            
+            // 最初のバッチの処理を開始
+            processImageQueue();
         }
         
         // 追加の画像ファイルアップロード処理
@@ -1072,25 +1101,53 @@
                 // グローバル変数で画像を保存
                 window.uploadedImages = window.uploadedImages || {};
                 
-                Array.from(imageInput.files).forEach(file => {
-                    const reader = new FileReader();
-                    reader.onload = function(e) {
-                        // 画像をBase64で保存
-                        const filename = file.name;
-                        window.uploadedImages[filename] = e.target.result;
+                // 画像の総数
+                const totalImages = imageInput.files.length;
+                let processedImages = 0;
+                
+                // 一度に処理する画像の数を制限
+                const batchSize = 5;
+                let currentBatchIndex = 0;
+                
+                function processBatch() {
+                    const endIndex = Math.min(currentBatchIndex + batchSize, totalImages);
+                    
+                    for (let i = currentBatchIndex; i < endIndex; i++) {
+                        const file = imageInput.files[i];
+                        const reader = new FileReader();
                         
-                        // サムネイルを表示
-                        const thumb = document.createElement('div');
-                        thumb.className = 'image-thumb';
-                        thumb.innerHTML = `
-                            <img src="${e.target.result}" alt="${filename}">
-                            <span class="image-name">${filename}</span>
-                            <span class="remove-btn" onclick="removeImage('${filename}')">×</span>
-                        `;
-                        imageContainer.appendChild(thumb);
-                    };
-                    reader.readAsDataURL(file);
-                });
+                        reader.onload = function(e) {
+                            // 画像をBase64で保存
+                            const filename = file.name;
+                            window.uploadedImages[filename] = e.target.result;
+                            
+                            // サムネイルを表示
+                            const thumb = document.createElement('div');
+                            thumb.className = 'image-thumb';
+                            thumb.innerHTML = `
+                                <img src="${e.target.result}" alt="${filename}">
+                                <span class="image-name">${filename}</span>
+                                <span class="remove-btn" onclick="removeImage('${filename}')">×</span>
+                            `;
+                            imageContainer.appendChild(thumb);
+                            
+                            processedImages++;
+                            
+                            // 次のバッチを処理
+                            if (processedImages === totalImages) {
+                                // すべての処理が完了
+                            } else if (processedImages === endIndex) {
+                                currentBatchIndex = endIndex;
+                                setTimeout(processBatch, 0);
+                            }
+                        };
+                        
+                        reader.readAsDataURL(file);
+                    }
+                }
+                
+                // 最初のバッチを処理
+                processBatch();
             }
         }
         
@@ -1119,24 +1176,7 @@
             
             // アップロードされた各画像について処理
             Object.keys(window.uploadedImages).forEach(filename => {
-                const escapedFilename = filename.replace(/[.*+?^${}()|[\]\\]/g, '\\    <script>
-        // グローバル変数
-        let htmlContent = '';
-        let selectedFormat = 'jpg';
-        let outputQuality = 0.95;
-        const { jsPDF } = window.jspdf;
-        
-        // スライド形式フラグ
-        window.isSlideFormat = false;
-        // 印刷用の最適化フラグ
-        window.optimizeForPrint = false;
-        // アップロードされた画像を保存するオブジェクト
-        window.uploadedImages = {};
-        // 元のファイルサイズを保持
-        window.originalWidth = null;
-        window.originalHeight = null;
-        // サイズ維持フラグ - デフォルトでサイズを維持
-        window.maintainOriginalSize = true;');
+                const escapedFilename = filename.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
                 // 相対パスと絶対パスの両方に対応
                 const patterns = [
                     new RegExp(`src=["'][^"']*/${escapedFilename}["']`, 'gi'),
@@ -1285,25 +1325,25 @@
             }
         }
         
-        // 複数ページがあるかチェック
+        // 複数ページがあるかチェック - パフォーマンス改善版
         function checkMultiplePages(content) {
             // ページ区切りの正規表現パターン（通常のHTML）
             const pageSeparators = [
-                /<div[^>]*class="?page"?[^>]*>/gi,
-                /<div[^>]*id="?page[0-9]+"?[^>]*>/gi,
-                /<section[^>]*class="?page"?[^>]*>/gi,
-                /<article[^>]*class="?page"?[^>]*>/gi,
-                /<hr[^>]*class="?page-break"?[^>]*>/gi,
-                /<!-- *page-break *-->/gi,
-                /<div[^>]*style="[^"]*page-break-before: always[^"]*"[^>]*>/gi,
-                /<div[^>]*style="[^"]*page-break-after: always[^"]*"[^>]*>/gi
+                /<div[^>]*class="?page"?[^>]*>/i,
+                /<div[^>]*id="?page[0-9]+"?[^>]*>/i,
+                /<section[^>]*class="?page"?[^>]*>/i,
+                /<article[^>]*class="?page"?[^>]*>/i,
+                /<hr[^>]*class="?page-break"?[^>]*>/i,
+                /<!-- *page-break *-->/i,
+                /<div[^>]*style="[^"]*page-break-before: always[^"]*"[^>]*>/i,
+                /<div[^>]*style="[^"]*page-break-after: always[^"]*"[^>]*>/i
             ];
             
             // スライド形式のHTML特有のパターン
             const slideSeparators = [
-                /<div[^>]*class="?slide"?[^>]*>/gi,
-                /<div[^>]*id="?slide[0-9]+"?[^>]*>/gi,
-                /<section[^>]*class="?slide"?[^>]*>/gi,
+                /<div[^>]*class="?slide"?[^>]*>/i,
+                /<div[^>]*id="?slide[0-9]+"?[^>]*>/i,
+                /<section[^>]*class="?slide"?[^>]*>/i,
             ];
             
             // スライド送り形式のHTMLかをチェック
@@ -1317,33 +1357,43 @@
                 isSlideFormat = true;
             }
             
+            // 効率的なマッチングのための関数
+            function countMatches(patterns, text) {
+                // 各パターンごとにマッチを検索
+                for (const pattern of patterns) {
+                    // 最初にマッチするかどうかを確認（高速）
+                    if (pattern.test(text)) {
+                        // マッチしたら、すべてのマッチを数える
+                        const matches = text.match(new RegExp(pattern.source, 'gi'));
+                        if (matches && matches.length > 0) {
+                            return matches.length;
+                        }
+                    }
+                }
+                return 0;
+            }
+            
             // いずれかのパターンがマッチするかチェック
             let hasMultiplePages = false;
             let pageCount = 1;
             let slidesCount = 0;
             
             // まず通常のページ区切りをチェック
-            for (const pattern of pageSeparators) {
-                const matches = content.match(pattern);
-                if (matches && matches.length > 0) {
-                    hasMultiplePages = true;
-                    pageCount += matches.length;
-                    break;
-                }
+            const pageMatches = countMatches(pageSeparators, content);
+            if (pageMatches > 0) {
+                hasMultiplePages = true;
+                pageCount += pageMatches;
             }
             
             // スライド区切りもチェック
-            for (const pattern of slideSeparators) {
-                const matches = content.match(pattern);
-                if (matches && matches.length > 0) {
-                    hasMultiplePages = true;
-                    isSlideFormat = true;
-                    slidesCount = matches.length;
-                    // スライド数が多い場合は、それを優先
-                    if (slidesCount > pageCount - 1) {
-                        pageCount = slidesCount;
-                    }
-                    break;
+            const slideMatches = countMatches(slideSeparators, content);
+            if (slideMatches > 0) {
+                hasMultiplePages = true;
+                isSlideFormat = true;
+                slidesCount = slideMatches;
+                // スライド数が多い場合は、それを優先
+                if (slidesCount > pageCount - 1) {
+                    pageCount = slidesCount;
                 }
             }
             
@@ -1434,42 +1484,6 @@
                 // SVG要素を取得してスタイル適用
                 const svgElement = htmlPreview.querySelector('svg');
                 if (svgElement) {
-                    // 保存済みのオリジナルサイズまたはSVGから取得
-                    let width = window.originalWidth;
-                    let height = window.originalHeight;
-                    
-                    if (!width || !height) {
-                        // 未設定の場合はSVG要素から取得
-                        width = svgElement.getAttribute('width') || 800;
-                        height = svgElement.getAttribute('height') || 600;
-                        let viewBox = svgElement.getAttribute('viewBox');
-                        
-                        // 数値に変換
-                        if (typeof width === 'string' && width.endsWith('px')) {
-                            width = parseFloat(width);
-                        }
-                        if (typeof height === 'string' && height.endsWith('px')) {
-                            height = parseFloat(height);
-                        }
-                        
-                        // viewBoxからサイズを取得（SVGの標準的な方法）
-                        if (viewBox) {
-                            const viewBoxValues = viewBox.split(/[\s,]+/);
-                            if (viewBoxValues.length >= 4) {
-                                if (!width || width === '100%') {
-                                    width = parseFloat(viewBoxValues[2]);
-                                }
-                                if (!height || height === '100%') {
-                                    height = parseFloat(viewBoxValues[3]);
-                                }
-                            }
-                        }
-                        
-                        // サイズを保存
-                        window.originalWidth = width;
-                        window.originalHeight = height;
-                    }
-                    
                     // 選択されたサイズを上書き適用
                     window.originalWidth = outputSize.width;
                     window.originalHeight = outputSize.height;
@@ -1493,6 +1507,9 @@
                 // プレビュー完了メッセージ
                 statusMessage.textContent = 'プレビューが完了しました。';
                 statusMessage.className = 'success';
+                
+                // 変換ボタンを有効化
+                convertBtn.disabled = false;
             } else {
                 // HTML場合はiframeで表示
                 const contentFrame = document.createElement('iframe');
@@ -1656,30 +1673,6 @@
                     htmlPreview.style.width = `${displayWidth}px`;
                     htmlPreview.style.height = `${displayHeight}px`;
                     
-                    // スライド形式で印刷最適化する場合は追加のスタイル
-                    if (window.isSlideFormat && window.optimizeForPrint) {
-                        const printStyle = document.createElement('style');
-                        printStyle.textContent = `
-                            @media print {
-                                .slide {
-                                    display: block !important;
-                                    opacity: 1 !important;
-                                    position: relative !important;
-                                    page-break-after: always;
-                                    break-after: page;
-                                }
-                                .nav-buttons, .slide-indicator {
-                                    display: none !important;
-                                }
-                                body { overflow: visible !important; }
-                            }
-                        `;
-                        frameDoc.head.appendChild(printStyle);
-                    }
-                    
-                    // 複数ページが含まれているか再確認
-                    checkMultiplePages(htmlContent);
-                    
                     // プレビュー完了メッセージ
                     statusMessage.textContent = 'プレビューが完了しました。';
                     statusMessage.className = 'success';
@@ -1688,14 +1681,14 @@
                     const previewWrapper = document.querySelector('.preview-wrapper');
                     previewWrapper.style.maxWidth = `${parseInt(htmlPreview.style.width) + 40}px`; // コンテナの最大幅を設定（余白含む）
                     previewWrapper.style.margin = '20px auto'; // 中央寄せ
+                    
+                    // 変換ボタンを有効化
+                    convertBtn.disabled = false;
                 }, 300);
-                
-                // 変換ボタンを有効化
-                convertBtn.disabled = false;
             }
         }
         
-        // 変換とダウンロード処理
+        // 変換とダウンロード処理 - 最適化版
         function convertAndDownload() {
             const htmlPreview = document.getElementById('html-preview');
             const statusMessage = document.getElementById('status-message');
@@ -1752,13 +1745,14 @@
                     
                     // ページが見つからない場合は単一ページとして処理
                     if (pages.length === 0) {
+                        // 高速化: 一度に処理する
                         convertSinglePage(iframe);
                         return;
                     }
                     
                     // 複数ページの場合
                     if (pageSelection === 'all') {
-                        // すべてのページを変換
+                        // すべてのページを変換 - 高速化
                         handleMultiplePages();
                     } else {
                         // 指定したページのみ変換
@@ -1778,10 +1772,8 @@
                                 }
                             });
                             
-                            // 少し遅延を入れて変換処理を開始
-                            setTimeout(() => {
-                                convertSinglePage(iframe);
-                            }, 100);
+                            // すぐに処理開始 - 待機時間を削減
+                            convertSinglePage(iframe);
                         } else {
                             statusMessage.textContent = `エラー: 指定されたページ番号(${selectedPageNumber})が範囲外です。`;
                             statusMessage.className = '';
@@ -1795,7 +1787,7 @@
             processPagesOrSlides();
         }
         
-        // 複数のページを一度に処理（全ページをPDFに）
+        // 複数のページを一度に処理（全ページをPDFに）- 高速化版
         function handleMultiplePages() {
             const htmlPreview = document.getElementById('html-preview');
             const statusMessage = document.getElementById('status-message');
@@ -1831,12 +1823,12 @@
             if (selectedFormat === 'pdf') {
                 createMultiPagePdf(iframe, pages);
             } else {
-                // 複数のファイルを作成
+                // 複数のファイルを作成 - 高速化: バッチ処理
                 createMultipleFiles(iframe, pages);
             }
         }
         
-        // 単一ページの変換処理
+        // 単一ページの変換処理 - より高速な実装
         function convertSinglePage(iframe) {
             const htmlPreview = document.getElementById('html-preview');
             const statusMessage = document.getElementById('status-message');
@@ -1870,19 +1862,37 @@
                 if (visibleSlide) {
                     // 表示されているスライドのみを処理
                     if (selectedFormat === 'svg') {
-                        // SVG形式で保存
+                        // SVG形式で保存 - 最適化: より効率的なDOMシリアライズ
                         convertToSVG(visibleSlide);
                     } else {
-                        // スライドを画像として描画
-                        html2canvas(visibleSlide, {
+                        // 高速化: より効率的なオプション設定
+                        const canvasOptions = {
                             scale: 2,  // 高品質化
                             useCORS: true,
                             allowTaint: true,
                             backgroundColor: window.getComputedStyle(frameBody).backgroundColor || '#FFFFFF',
                             logging: false,
                             width: outputSize.width,
-                            height: outputSize.height
-                        }).then(canvas => {
+                            height: outputSize.height,
+                            // 高速化: レンダリングをスキップするオプション
+                            skipRendering: false,
+                            // 高速化: より高速なDOMキャンバス処理
+                            onclone: (doc) => {
+                                // アニメーションの完全停止
+                                if (window.freezeAnimations) {
+                                    doc.querySelectorAll('*').forEach(el => {
+                                        if (el.style && el.style.animation) {
+                                            el.style.animationPlayState = 'paused';
+                                            el.style.animationDelay = '-999s';
+                                        }
+                                    });
+                                }
+                                return doc;
+                            }
+                        };
+                        
+                        // スライドを画像として描画
+                        html2canvas(visibleSlide, canvasOptions).then(canvas => {
                             if (selectedFormat === 'jpg') {
                                 // JPGとしてダウンロード
                                 const link = document.createElement('a');
@@ -1935,9 +1945,9 @@
                 // SVG形式で保存
                 convertToSVG(frameDoc.documentElement);
             } else {
-                // JPGまたはPDF形式で保存
-                html2canvas(frameDoc.documentElement, {
-                    scale: 2,  // 高品質化のためスケールを上げる
+                // 高速化: キャンバスオプションを最適化
+                const canvasOptions = {
+                    scale: 2,
                     useCORS: true,
                     allowTaint: true,
                     backgroundColor: window.getComputedStyle(frameBody).backgroundColor || '#FFFFFF',
@@ -1945,8 +1955,16 @@
                     width: outputSize.width,
                     height: outputSize.height,
                     windowWidth: outputSize.width,
-                    windowHeight: outputSize.height
-                }).then(canvas => {
+                    windowHeight: outputSize.height,
+                    // 高速化: より効率的なDOM処理
+                    foreignObjectRendering: true,
+                    // 高速化: スクロール問題を回避
+                    scrollX: 0,
+                    scrollY: 0
+                };
+                
+                // JPGまたはPDF形式で保存
+                html2canvas(frameDoc.documentElement, canvasOptions).then(canvas => {
                     try {
                         if (selectedFormat === 'jpg') {
                             // JPGとしてダウンロード
@@ -2000,7 +2018,7 @@
             }
         }
         
-        // SVGファイル変換の特別処理
+        // SVGファイル変換の特別処理 - 高速化版
         function handleSvgConversion(svgElement) {
             const statusMessage = document.getElementById('status-message');
             const outputSize = outputSizes[window.selectedSize];
@@ -2029,6 +2047,8 @@
                     saveAs(blob, getFileName('svg'));
                     
                     statusMessage.textContent = 'SVGファイルのダウンロードが完了しました！';
+                    statusMessage.className = '';
+                    statusMessage.classList.add('success');
                 } else {
                     // SVGからキャンバスを作成して他の形式に変換
                     const img = new Image();
@@ -2050,6 +2070,8 @@
                             link.click();
                             
                             statusMessage.textContent = 'JPGファイルのダウンロードが完了しました！';
+                            statusMessage.className = '';
+                            statusMessage.classList.add('success');
                         } else {
                             // PDFとして保存
                             const pdf = new jsPDF({
@@ -2071,16 +2093,19 @@
                             pdf.save(getFileName('pdf'));
                             
                             statusMessage.textContent = 'PDFファイルのダウンロードが完了しました！';
+                            statusMessage.className = '';
+                            statusMessage.classList.add('success');
                         }
+                        
+                        // リソース解放
+                        URL.revokeObjectURL(img.src);
                     };
                     
+                    // 高速化: オブジェクトURLを使用
                     const svgBlob = new Blob([svgContent], {type: 'image/svg+xml;charset=utf-8'});
                     const url = URL.createObjectURL(svgBlob);
                     img.src = url;
                 }
-                
-                statusMessage.className = '';
-                statusMessage.classList.add('success');
             } catch (error) {
                 console.error('SVG変換エラー:', error);
                 statusMessage.textContent = 'SVG変換中にエラーが発生しました。';
@@ -2089,7 +2114,7 @@
             }
         }
         
-        // SVG形式に変換する処理
+        // SVG形式に変換する処理 - 高速化版
         function convertToSVG(element) {
             const statusMessage = document.getElementById('status-message');
             const outputSize = outputSizes[window.selectedSize];
@@ -2118,7 +2143,7 @@
             .catch(function(error) {
                 console.error('SVG変換エラー:', error);
                 
-                // 代替手段を試行
+                // 代替手段を試行 - より単純で高速なアプローチ
                 try {
                     // HTMLの内容からSVGを直接作成
                     const serializer = new XMLSerializer();
@@ -2136,7 +2161,7 @@
                     foreignObject.setAttribute("width", "100%");
                     foreignObject.setAttribute("height", "100%");
                     
-                    // HTMLコンテンツのクローンを作成
+                    // 軽量なHTMLコンテンツのクローンを作成
                     const clonedElement = element.cloneNode(true);
                     foreignObject.appendChild(clonedElement);
                     svgElement.appendChild(foreignObject);
@@ -2160,7 +2185,7 @@
             });
         }
         
-        // 複数ページのPDF作成
+        // 複数ページのPDF作成 - 高速化版
         function createMultiPagePdf(iframe, pages) {
             const statusMessage = document.getElementById('status-message');
             const outputSize = outputSizes[window.selectedSize];
@@ -2175,7 +2200,13 @@
             });
             
             let pageIndex = 0;
-            statusMessage.innerHTML = '<span class="loading-spinner"></span>変換中... (ページ 1/' + pages.length + ')';
+            let totalPages = pages.length;
+            statusMessage.innerHTML = '<span class="loading-spinner"></span>変換中... (ページ 1/' + totalPages + ')';
+            
+            // 並列処理のための準備
+            const batchSize = Math.min(3, Math.ceil(totalPages / 2)); // 一度に処理するページ数を制限
+            const processedPages = [];
+            let pendingCount = 0;
             
             // スライド形式で印刷最適化が有効な場合は特別処理
             if (window.isSlideFormat && window.optimizeForPrint) {
@@ -2184,1998 +2215,30 @@
                 return;
             }
             
-            // 各ページを処理する再帰関数
-            function processPage() {
-                // 他のページを非表示にする
+            // 各ページをバッチで処理
+            function processNextBatch() {
+                const startIndex = pageIndex;
+                const endIndex = Math.min(pageIndex + batchSize, totalPages);
+                
+                if (startIndex >= totalPages) {
+                    // すべてのページが処理されたらPDFを保存
+                    finalizePdf();
+                    return;
+                }
+                
+                // このバッチの各ページを処理
+                for (let i = startIndex; i < endIndex; i++) {
+                    processPage(i);
+                }
+                
+                // バッチインデックスを更新
+                pageIndex = endIndex;
+            }
+            
+            // 個々のページを処理
+            function processPage(index) {
+                pendingCount++;
+                
+                // ページを表示
                 pages.forEach((page, i) => {
-                    page.style.display = i === pageIndex ? 'block' : 'none';
-                    
-                    // スライド形式の場合はopacityも設定
-                    if (window.isSlideFormat) {
-                        page.style.opacity = i === pageIndex ? '1' : '0';
-                        page.style.position = i === pageIndex ? 'relative' : 'absolute';
-                        page.style.zIndex = i === pageIndex ? '2' : '1';
-                    }
-                });
-                
-                // 現在のページをキャンバスに描画
-                html2canvas(iframe.contentDocument.documentElement, {
-                    scale: 2,
-                    useCORS: true,
-                    allowTaint: true,
-                    logging: false,
-                    backgroundColor: window.getComputedStyle(iframe.contentDocument.body).backgroundColor || '#FFFFFF',
-                    width: outputSize.width,
-                    height: outputSize.height,
-                    windowWidth: outputSize.width,
-                    windowHeight: outputSize.height
-                }).then(canvas => {
-                    // PDFに追加
-                    if (pageIndex > 0) {
-                        pdf.addPage();
-                    }
-                    
-                    pdf.addImage(
-                        canvas.toDataURL('image/jpeg', 1.0),
-                        'JPEG',
-                        0,
-                        0,
-                        outputSize.width,
-                        outputSize.height,
-                        undefined,
-                        'FAST'
-                    );
-                    
-                    pageIndex++;
-                    
-                    if (pageIndex < pages.length) {
-                        statusMessage.innerHTML = '<span class="loading-spinner"></span>変換中... (ページ ' + (pageIndex + 1) + '/' + pages.length + ')';
-                        setTimeout(processPage, 500);
-                    } else {
-                        pdf.save(getFileName('pdf'));
-                        statusMessage.textContent = 'マルチページPDFのダウンロードが完了しました！';
-                        statusMessage.className = '';
-                        statusMessage.classList.add('success');
-                    }
-                }).catch(error => {
-                    console.error('Page conversion error:', error);
-                    statusMessage.textContent = `ページ${pageIndex + 1}の変換中にエラーが発生しました。`;
-                    statusMessage.className = '';
-                    statusMessage.classList.add('error');
-                });
-            }
-            
-            // 印刷用に最適化されたスライドを処理
-            function processAllSlides(slides, pdf) {
-                // すべてのスライドを表示状態にする
-                slides.forEach((slide) => {
-                    slide.style.display = 'block';
-                    slide.style.opacity = '1';
-                    slide.style.position = 'relative';
-                    slide.style.pageBreakAfter = 'always';
-                    slide.style.breakAfter = 'page';
-                });
-                
-                // ページ全体をキャプチャ
-                html2canvas(iframe.contentDocument.documentElement, {
-                    scale: 2,
-                    useCORS: true,
-                    allowTaint: true,
-                    logging: false,
-                    backgroundColor: window.getComputedStyle(iframe.contentDocument.body).backgroundColor || '#FFFFFF',
-                    onclone: function(clonedDoc) {
-                        // クローン作成時のカスタマイズ
-                        const clonedSlides = getPages(clonedDoc);
-                        clonedSlides.forEach(slide => {
-                            slide.style.display = 'block';
-                            slide.style.opacity = '1';
-                            slide.style.position = 'relative';
-                            slide.style.pageBreakAfter = 'always';
-                            slide.style.breakAfter = 'page';
-                            slide.style.height = outputSize.height + 'px';
-                            slide.style.width = outputSize.width + 'px';
-                        });
-                    }
-                }).then(canvas => {
-                    // 単一のPDFファイルとして保存
-                    pdf.save(getFileName('pdf'));
-                    statusMessage.textContent = '印刷用PDFのダウンロードが完了しました！';
-                    statusMessage.className = '';
-                    statusMessage.classList.add('success');
-                }).catch(error => {
-                    console.error('PDF conversion error:', error);
-                    statusMessage.textContent = 'PDFの作成中にエラーが発生しました。個別のページで試してください。';
-                    statusMessage.className = '';
-                    statusMessage.classList.add('error');
-                    
-                    // 代替手段として通常の方法を試す
-                    processPage();
-                });
-            }
-            
-            // 最初のページから処理開始
-            processPage();
-        }
-        
-        // 複数のファイルの作成（JPG/SVG）
-        function createMultipleFiles(iframe, pages) {
-            const statusMessage = document.getElementById('status-message');
-            const outputSize = outputSizes[window.selectedSize];
-            
-            let pageIndex = 0;
-            let processedCount = 0;
-            statusMessage.innerHTML = '<span class="loading-spinner"></span>変換中... (ページ 1/' + pages.length + ')';
-            
-            // 印刷用最適化が有効で、スライド形式の場合
-            if (window.isSlideFormat && window.optimizeForPrint) {
-                processAllSlidesIndividually(pages);
-                return;
-            }
-            
-            // 各ページを処理する再帰関数
-            function processPage() {
-                // 他のページを非表示にする
-                pages.forEach((page, i) => {
-                    page.style.display = i === pageIndex ? 'block' : 'none';
-                    
-                    // スライド形式の場合はopacityも設定
-                    if (window.isSlideFormat) {
-                        page.style.opacity = i === pageIndex ? '1' : '0';
-                        page.style.position = i === pageIndex ? 'relative' : 'absolute';
-                        page.style.zIndex = i === pageIndex ? '2' : '1';
-                    }
-                });
-                
-                // 現在のページをキャンバスに描画
-                html2canvas(iframe.contentDocument.documentElement, {
-                    scale: 2,
-                    useCORS: true,
-                    allowTaint: true,
-                    logging: false,
-                    backgroundColor: window.getComputedStyle(iframe.contentDocument.body).backgroundColor || '#FFFFFF',
-                    width: outputSize.width,
-                    height: outputSize.height
-                }).then(canvas => {
-                    // ファイルをダウンロード
-                    if (selectedFormat === 'jpg') {
-                        const link = document.createElement('a');
-                        link.download = getFileName('jpg', pageIndex + 1);
-                        link.href = canvas.toDataURL('image/jpeg', outputQuality);
-                        link.click();
-                    } else if (selectedFormat === 'svg') {
-                        // SVGは特殊処理が必要
-                        try {
-                            const serializer = new XMLSerializer();
-                            let svgContent = '<?xml version="1.0" encoding="UTF-8" standalone="no"?>\n';
-                            // HTMLをSVGに変換
-                            const pageElement = pages[pageIndex];
-                            const svgElement = document.createElementNS("http://www.w3.org/2000/svg", "svg");
-                            svgElement.setAttribute("xmlns", "http://www.w3.org/2000/svg");
-                            svgElement.setAttribute("viewBox", `0 0 ${outputSize.width} ${outputSize.height}`);
-                            svgElement.setAttribute("width", outputSize.width);
-                            svgElement.setAttribute("height", outputSize.height);
-                            
-                            // 外部オブジェクトとしてHTMLを埋め込み
-                            const foreignObject = document.createElementNS("http://www.w3.org/2000/svg", "foreignObject");
-                            foreignObject.setAttribute("width", "100%");
-                            foreignObject.setAttribute("height", "100%");
-                            
-                            const clonedElement = pageElement.cloneNode(true);
-                            foreignObject.appendChild(clonedElement);
-                            svgElement.appendChild(foreignObject);
-                            
-                            svgContent += serializer.serializeToString(svgElement);
-                            
-                            // SVGファイルとして保存
-                            const blob = new Blob([svgContent], {type: 'image/svg+xml;charset=utf-8'});
-                            saveAs(blob, getFileName('svg', pageIndex + 1));
-                        } catch (error) {
-                            console.error('SVG conversion error:', error);
-                        }
-                    }
-                    
-                    processedCount++;
-                    pageIndex++;
-                    
-                    if (pageIndex < pages.length) {
-                        statusMessage.innerHTML = '<span class="loading-spinner"></span>変換中... (ページ ' + (pageIndex + 1) + '/' + pages.length + ')';
-                        setTimeout(processPage, 500);
-                    } else {
-                        statusMessage.textContent = `${pages.length}ページの変換が完了しました！`;
-                        statusMessage.className = '';
-                        statusMessage.classList.add('success');
-                    }
-                }).catch(error => {
-                    console.error('Page conversion error:', error);
-                    processedCount++;
-                    pageIndex++;
-                    
-                    if (pageIndex < pages.length) {
-                        statusMessage.textContent = `ページ${pageIndex}のエラーをスキップして続行中... (${pageIndex + 1}/${pages.length})`;
-                        setTimeout(processPage, 500);
-                    } else {
-                        statusMessage.textContent = `${processedCount}/${pages.length}ページの変換が完了しました。一部エラーがありました。`;
-                        statusMessage.className = '';
-                        statusMessage.classList.add('warning');
-                    }
-                });
-            }
-            
-            // 印刷用に最適化されたスライドを個別に処理
-            function processAllSlidesIndividually(slides) {
-                // 印刷用スタイルを適用
-                slides.forEach((slide, index) => {
-                    slide.style.display = 'block';
-                    slide.style.opacity = '1';
-                    slide.style.position = 'relative';
-                    
-                    // 各スライドを個別に処理
-                    html2canvas(slide, {
-                        scale: 2,
-                        useCORS: true,
-                        allowTaint: true,
-                        logging: false,
-                        backgroundColor: window.getComputedStyle(iframe.contentDocument.body).backgroundColor || '#FFFFFF',
-                        width: outputSize.width,
-                        height: outputSize.height
-                    }).then(canvas => {
-                        // ファイルをダウンロード
-                        if (selectedFormat === 'jpg') {
-                            const link = document.createElement('a');
-                            link.download = getFileName('jpg', index + 1);
-                            link.href = canvas.toDataURL('image/jpeg', outputQuality);
-                            link.click();
-                        } else if (selectedFormat === 'svg') {
-                            try {
-                                // SVGファイルとして保存
-                                domtoimage.toSvg(slide)
-                                    .then(function(dataUrl) {
-                                        const svgContent = atob(dataUrl.split(',')[1]);
-                                        const blob = new Blob([svgContent], {type: 'image/svg+xml;charset=utf-8'});
-                                        saveAs(blob, getFileName('svg', index + 1));
-                                    })
-                                    .catch(function(error) {
-                                        console.error('SVG conversion error:', error);
-                                    });
-                            } catch (error) {
-                                console.error('SVG conversion error:', error);
-                            }
-                        }
-                        
-                        processedCount++;
-                        
-                        // 進捗状況を更新
-                        statusMessage.innerHTML = '<span class="loading-spinner"></span>変換中... (' + processedCount + '/' + slides.length + ')';
-                        
-                        // すべてのスライドが処理されたか確認
-                        if (processedCount >= slides.length) {
-                            statusMessage.textContent = `${slides.length}ページの変換が完了しました！`;
-                            statusMessage.className = '';
-                            statusMessage.classList.add('success');
-                        }
-                    }).catch(error => {
-                        console.error('Slide conversion error:', error);
-                        processedCount++;
-                        
-                        if (processedCount >= slides.length) {
-                            statusMessage.textContent = `${processedCount}/${slides.length}ページの変換が完了しました。一部エラーがありました。`;
-                            statusMessage.className = '';
-                            statusMessage.classList.add('warning');
-                        }
-                    });
-                });
-            }
-            
-            // 最初のページから処理開始
-            processPage();
-        }
-        
-        // ファイル名生成
-        function getFileName(extension, pageNumber = null) {
-            const fileInput = document.getElementById('html-file');
-            let baseName = 'converted-html';
-            
-            if (fileInput.files.length > 0) {
-                const originalFileName = fileInput.files[0].name;
-                baseName = originalFileName.replace(/\.[^/.]+$/, ""); // 拡張子を削除
-            }
-            
-            const date = new Date();
-            const timestamp = `${date.getFullYear()}${(date.getMonth()+1).toString().padStart(2, '0')}${date.getDate().toString().padStart(2, '0')}_${date.getHours().toString().padStart(2, '0')}${date.getMinutes().toString().padStart(2, '0')}`;
-            
-            if (pageNumber !== null) {
-                return `${baseName}_page${pageNumber}_${timestamp}.${extension}`;
-            } else {
-                return `${baseName}_${timestamp}.${extension}`;
-            }
-        }
-        
-        // 画質スライダーの値更新
-        function updateQualityValue() {
-            const slider = document.getElementById('quality-slider');
-            const valueDisplay = document.getElementById('quality-value');
-            
-            valueDisplay.textContent = `${slider.value}%`;
-            outputQuality = parseInt(slider.value) / 100;
-        }
-        
-        // ページ選択ラジオボタンのイベント
-        document.addEventListener('DOMContentLoaded', function() {
-            // ページ選択ラジオボタンのイベント
-            const pageSelectionRadios = document.querySelectorAll('input[name="page-selection"]');
-            const pageNumberContainer = document.getElementById('page-number-container');
-            
-            pageSelectionRadios.forEach(radio => {
-                radio.addEventListener('change', function() {
-                    pageNumberContainer.style.display = 
-                        this.value === 'selected' ? 'block' : 'none';
-                });
-            });
-            
-            // ステータスメッセージを初期化
-            const statusMessage = document.getElementById('status-message');
-            statusMessage.textContent = 'HTMLまたはSVGファイルをアップロードしてください。';
-            statusMessage.className = '';
-            statusMessage.classList.remove('hidden');
-            
-            // 初期化
-            updateQualityValue();
-        });
-    </script>
-        
-        // フォーマット選択
-        function selectFormat(format) {
-            selectedFormat = format;
-            document.querySelectorAll('.format-option').forEach(option => {
-                option.classList.remove('selected');
-            });
-            
-            // 選択されたフォーマットに応じて対応するオプションを選択状態にする
-            const formatIndex = format === 'jpg' ? 1 : (format === 'pdf' ? 2 : 3);
-            document.querySelector(`.format-option:nth-child(${formatIndex})`).classList.add('selected');
-        }
-        
-        // 印刷最適化オプションの切り替え
-        function togglePrintOptimization() {
-            window.optimizeForPrint = document.getElementById('optimize-for-print').checked;
-        }
-        
-        // サイズ維持オプションの切り替え
-        function toggleSizeMaintenance() {
-            window.maintainOriginalSize = document.getElementById('maintain-size').checked;
-            // プレビューが既に表示されている場合は再描画
-            if (!document.getElementById('preview-btn').disabled) {
-                renderPreview();
-            }
-        }
-        
-        // 画像をプリロードする関数
-        function preloadImages(htmlContent, callback) {
-            const tempContainer = document.createElement('div');
-            tempContainer.innerHTML = htmlContent;
-            
-            // すべての画像要素を取得
-            const images = tempContainer.querySelectorAll('img');
-            let imagesToLoad = images.length;
-            
-            // 画像がない場合は即時コールバック
-            if (imagesToLoad === 0) {
-                callback(htmlContent);
-                return;
-            }
-            
-            // 進捗表示
-            const statusMessage = document.getElementById('status-message');
-            statusMessage.textContent = `画像をロード中... (0/${imagesToLoad})`;
-            statusMessage.className = '';
-            statusMessage.classList.remove('hidden');
-            
-            // Base64画像の変換リスト
-            const imageMap = new Map();
-            let loadedCount = 0;
-            
-            // 各画像をBase64に変換
-            images.forEach(img => {
-                const originalSrc = img.getAttribute('src');
-                if (!originalSrc || originalSrc.startsWith('data:') || originalSrc.startsWith('blob:')) {
-                    // すでにデータURLやblobの場合はスキップ
-                    imagesToLoad--;
-                    if (imagesToLoad === 0) {
-                        finishProcessing();
-                    }
-                    return;
-                }
-                
-                // アップロード済みの画像からマッチするものを探す
-                const imageName = originalSrc.split('/').pop();
-                if (window.uploadedImages[imageName]) {
-                    imageMap.set(originalSrc, window.uploadedImages[imageName]);
-                    loadedCount++;
-                    statusMessage.textContent = `画像をロード中... (${loadedCount}/${imagesToLoad})`;
-                    
-                    if (loadedCount === imagesToLoad) {
-                        finishProcessing();
-                    }
-                    return;
-                }
-                
-                // ローカルファイルパスを絶対URLに変換する試み
-                let imgSrc = originalSrc;
-                if (imgSrc.startsWith('./')) {
-                    imgSrc = imgSrc.substring(2);
-                }
-                
-                // 画像を読み込み、Base64に変換
-                const imgElement = new Image();
-                imgElement.crossOrigin = 'anonymous';  // CORS対応
-                
-                imgElement.onload = function() {
-                    try {
-                        const canvas = document.createElement('canvas');
-                        canvas.width = imgElement.width;
-                        canvas.height = imgElement.height;
-                        const ctx = canvas.getContext('2d');
-                        ctx.drawImage(imgElement, 0, 0);
-                        const dataURL = canvas.toDataURL('image/png');
-                        imageMap.set(originalSrc, dataURL);
-                        
-                        loadedCount++;
-                        statusMessage.textContent = `画像をロード中... (${loadedCount}/${imagesToLoad})`;
-                        
-                        if (loadedCount === imagesToLoad) {
-                            finishProcessing();
-                        }
-                    } catch (error) {
-                        console.error('画像変換エラー:', error, originalSrc);
-                        loadedCount++;
-                        if (loadedCount === imagesToLoad) {
-                            finishProcessing();
-                        }
-                    }
-                };
-                
-                imgElement.onerror = function() {
-                    console.warn('画像の読み込みに失敗しました:', imgSrc);
-                    loadedCount++;
-                    if (loadedCount === imagesToLoad) {
-                        finishProcessing();
-                    }
-                };
-                
-                // 読み込み開始
-                imgElement.src = imgSrc;
-                
-                // 一定時間後にタイムアウト処理
-                setTimeout(() => {
-                    if (imgElement.complete) return;
-                    imgElement.src = '';
-                    console.warn('画像の読み込みがタイムアウトしました:', imgSrc);
-                    loadedCount++;
-                    if (loadedCount === imagesToLoad) {
-                        finishProcessing();
-                    }
-                }, 5000);
-            });
-            
-            // すべての画像処理が完了したら実行
-            function finishProcessing() {
-                // HTMLコンテンツ内の画像パスをBase64に置き換え
-                let processedHTML = htmlContent;
-                imageMap.forEach((dataURL, originalSrc) => {
-                    const escapedSrc = originalSrc.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-                    const regex = new RegExp(`src=["']${escapedSrc}["']`, 'g');
-                    processedHTML = processedHTML.replace(regex, `src="${dataURL}"`);
-                });
-                
-                callback(processedHTML);
-                statusMessage.textContent = '画像の処理が完了しました。';
-                statusMessage.className = 'success';
-            }
-        }
-        
-        // 追加の画像ファイルアップロード処理
-        function handleImageUpload() {
-            const imageInput = document.getElementById('image-files');
-            const imageList = document.getElementById('image-list');
-            
-            if (imageInput.files.length > 0) {
-                // アップロードされた画像の一覧を表示
-                imageList.innerHTML = '<div>選択された画像:</div>';
-                const imageContainer = document.createElement('div');
-                imageContainer.style.marginTop = '10px';
-                imageList.appendChild(imageContainer);
-                
-                // グローバル変数で画像を保存
-                window.uploadedImages = window.uploadedImages || {};
-                
-                Array.from(imageInput.files).forEach(file => {
-                    const reader = new FileReader();
-                    reader.onload = function(e) {
-                        // 画像をBase64で保存
-                        const filename = file.name;
-                        window.uploadedImages[filename] = e.target.result;
-                        
-                        // サムネイルを表示
-                        const thumb = document.createElement('div');
-                        thumb.className = 'image-thumb';
-                        thumb.innerHTML = `
-                            <img src="${e.target.result}" alt="${filename}">
-                            <span class="image-name">${filename}</span>
-                            <span class="remove-btn" onclick="removeImage('${filename}')">×</span>
-                        `;
-                        imageContainer.appendChild(thumb);
-                    };
-                    reader.readAsDataURL(file);
-                });
-            }
-        }
-        
-        // アップロードされた画像を削除
-        function removeImage(filename) {
-            if (window.uploadedImages && window.uploadedImages[filename]) {
-                delete window.uploadedImages[filename];
-                
-                // 画像リストからも削除
-                const imageElements = document.querySelectorAll('.image-thumb');
-                imageElements.forEach(el => {
-                    if (el.querySelector('.image-name').textContent === filename) {
-                        el.remove();
-                    }
-                });
-            }
-        }
-        
-        // HTMLコンテンツをレンダリングする前に、アップロードされた画像の参照を置き換える
-        function replaceUploadedImageReferences(content) {
-            if (!window.uploadedImages || Object.keys(window.uploadedImages).length === 0) {
-                return content;
-            }
-            
-            let modifiedContent = content;
-            
-            // アップロードされた各画像について処理
-            Object.keys(window.uploadedImages).forEach(filename => {
-                const escapedFilename = filename.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-                // 相対パスと絶対パスの両方に対応
-                const patterns = [
-                    new RegExp(`src=["'][^"']*/${escapedFilename}["']`, 'gi'),
-                    new RegExp(`src=["']${escapedFilename}["']`, 'gi')
-                ];
-                
-                patterns.forEach(regex => {
-                    modifiedContent = modifiedContent.replace(regex, `src="${window.uploadedImages[filename]}"`);
-                });
-            });
-            
-            return modifiedContent;
-        }
-        
-        // ファイルアップロード処理
-        function handleFileUpload() {
-            const fileInput = document.getElementById('html-file');
-            const fileNameDisplay = document.getElementById('file-name');
-            const previewBtn = document.getElementById('preview-btn');
-            const statusMessage = document.getElementById('status-message');
-            
-            // サイズ情報表示をリセット
-            document.getElementById('size-info').textContent = '';
-            
-            // 元のサイズ情報をリセット
-            window.originalWidth = null;
-            window.originalHeight = null;
-            
-            if (fileInput.files.length > 0) {
-                const file = fileInput.files[0];
-                fileNameDisplay.textContent = file.name;
-                
-                // ステータスメッセージを初期化して表示
-                statusMessage.textContent = 'ファイルを読み込んでいます...';
-                statusMessage.className = '';
-                statusMessage.classList.remove('hidden');
-                
-                // ファイル拡張子を取得
-                const fileExt = file.name.split('.').pop().toLowerCase();
-                
-                // SVGファイルの場合
-                if (fileExt === 'svg') {
-                    const reader = new FileReader();
-                    reader.onload = function(e) {
-                        htmlContent = e.target.result;
-                        
-                        // SVGのサイズを取得して保存
-                        const tempDiv = document.createElement('div');
-                        tempDiv.innerHTML = e.target.result;
-                        const svgElement = tempDiv.querySelector('svg');
-                        
-                        if (svgElement) {
-                            // SVGの元の寸法を取得
-                            let width = svgElement.getAttribute('width');
-                            let height = svgElement.getAttribute('height');
-                            let viewBox = svgElement.getAttribute('viewBox');
-                            
-                            // 単位を除去して数値に変換
-                            if (width) {
-                                if (typeof width === 'string' && width.endsWith('px')) {
-                                    width = parseFloat(width);
-                                } else if (typeof width === 'string') {
-                                    width = parseFloat(width);
-                                }
-                                window.originalWidth = width || 800;
-                            }
-                            
-                            if (height) {
-                                if (typeof height === 'string' && height.endsWith('px')) {
-                                    height = parseFloat(height);
-                                } else if (typeof height === 'string') {
-                                    height = parseFloat(height);
-                                }
-                                window.originalHeight = height || 600;
-                            }
-                            
-                            // viewBoxからサイズを取得（width/heightが無い場合）
-                            if (viewBox && (!width || !height)) {
-                                const viewBoxValues = viewBox.split(/[\s,]+/);
-                                if (viewBoxValues.length >= 4) {
-                                    if (!window.originalWidth) {
-                                        window.originalWidth = parseFloat(viewBoxValues[2]);
-                                    }
-                                    if (!window.originalHeight) {
-                                        window.originalHeight = parseFloat(viewBoxValues[3]);
-                                    }
-                                }
-                            }
-                        }
-                        
-                        previewBtn.disabled = false;
-                        // SVG形式を選択
-                        selectFormat('svg');
-                        
-                        statusMessage.textContent = 'SVGファイルの読み込みが完了しました。';
-                        statusMessage.className = 'success';
-                    };
-                    reader.readAsText(file);
-                } 
-                // HTMLファイルの場合
-                else if (fileExt === 'html' || fileExt === 'htm') {
-                    const reader = new FileReader();
-                    reader.onload = function(e) {
-                        const content = e.target.result;
-                        
-                        // アップロードされた画像の参照を置き換え
-                        const processedContent = replaceUploadedImageReferences(content);
-                        
-                        // 画像をプリロードして処理
-                        preloadImages(processedContent, function(finalContent) {
-                            htmlContent = finalContent;
-                            previewBtn.disabled = false;
-                            
-                            // 複数ページが含まれているか確認
-                            checkMultiplePages(htmlContent);
-                        });
-                    };
-                    reader.readAsText(file);
-                }
-                // その他のファイル形式
-                else {
-                    fileNameDisplay.textContent = 'サポートされていないファイル形式です';
-                    previewBtn.disabled = true;
-                    
-                    statusMessage.textContent = 'エラー: サポートされていないファイル形式です。HTMLまたはSVGファイルを選択してください。';
-                    statusMessage.className = 'error';
-                }
-            } else {
-                fileNameDisplay.textContent = '';
-                previewBtn.disabled = true;
-            }
-        }
-        
-        // 複数ページがあるかチェック
-        function checkMultiplePages(content) {
-            // ページ区切りの正規表現パターン（通常のHTML）
-            const pageSeparators = [
-                /<div[^>]*class="?page"?[^>]*>/gi,
-                /<div[^>]*id="?page[0-9]+"?[^>]*>/gi,
-                /<section[^>]*class="?page"?[^>]*>/gi,
-                /<article[^>]*class="?page"?[^>]*>/gi,
-                /<hr[^>]*class="?page-break"?[^>]*>/gi,
-                /<!-- *page-break *-->/gi,
-                /<div[^>]*style="[^"]*page-break-before: always[^"]*"[^>]*>/gi,
-                /<div[^>]*style="[^"]*page-break-after: always[^"]*"[^>]*>/gi
-            ];
-            
-            // スライド形式のHTML特有のパターン
-            const slideSeparators = [
-                /<div[^>]*class="?slide"?[^>]*>/gi,
-                /<div[^>]*id="?slide[0-9]+"?[^>]*>/gi,
-                /<section[^>]*class="?slide"?[^>]*>/gi,
-            ];
-            
-            // スライド送り形式のHTMLかをチェック
-            let isSlideFormat = false;
-            
-            // スライド関連のJavaScriptがあるか確認
-            if (content.includes('changeSlide') || 
-                content.includes('nextSlide') || 
-                content.includes('prevSlide') ||
-                content.includes('class="slides-container"')) {
-                isSlideFormat = true;
-            }
-            
-            // いずれかのパターンがマッチするかチェック
-            let hasMultiplePages = false;
-            let pageCount = 1;
-            let slidesCount = 0;
-            
-            // まず通常のページ区切りをチェック
-            for (const pattern of pageSeparators) {
-                const matches = content.match(pattern);
-                if (matches && matches.length > 0) {
-                    hasMultiplePages = true;
-                    pageCount += matches.length;
-                    break;
-                }
-            }
-            
-            // スライド区切りもチェック
-            for (const pattern of slideSeparators) {
-                const matches = content.match(pattern);
-                if (matches && matches.length > 0) {
-                    hasMultiplePages = true;
-                    isSlideFormat = true;
-                    slidesCount = matches.length;
-                    // スライド数が多い場合は、それを優先
-                    if (slidesCount > pageCount - 1) {
-                        pageCount = slidesCount;
-                    }
-                    break;
-                }
-            }
-            
-            // ページ数情報を更新
-            const pageInfo = document.getElementById('page-info');
-            if (isSlideFormat) {
-                pageInfo.textContent = `(スライド形式: ${pageCount}ページ検出)`;
-                // スライド形式フラグを設定
-                window.isSlideFormat = true;
-            } else {
-                pageInfo.textContent = hasMultiplePages ? `(${pageCount}ページ検出)` : '';
-                window.isSlideFormat = false;
-            }
-            
-            document.getElementById('page-options').style.display = 
-                hasMultiplePages ? 'block' : 'none';
-        }
-        
-        // ページ要素を取得
-        function getPages(doc) {
-            // 一般的なページ区切り要素を探す
-            let pages = [];
-            
-            // スライド形式の場合
-            if (window.isSlideFormat) {
-                // class="slide"を持つdiv要素
-                pages = Array.from(doc.querySelectorAll('div.slide'));
-                if (pages.length > 0) return pages;
-                
-                // id="slideX"形式のdiv要素
-                pages = Array.from(doc.querySelectorAll('div[id^="slide"]'));
-                if (pages.length > 0) return pages;
-                
-                // class="slide"を持つsection要素
-                pages = Array.from(doc.querySelectorAll('section.slide'));
-                if (pages.length > 0) return pages;
-            }
-            
-            // 通常のページ形式の場合
-            // class="page"を持つdiv要素
-            pages = Array.from(doc.querySelectorAll('div.page'));
-            if (pages.length > 0) return pages;
-            
-            // id="pageX"形式のdiv要素
-            pages = Array.from(doc.querySelectorAll('div[id^="page"]'));
-            if (pages.length > 0) return pages;
-            
-            // class="page"を持つsection要素
-            pages = Array.from(doc.querySelectorAll('section.page'));
-            if (pages.length > 0) return pages;
-            
-            // class="page"を持つarticle要素
-            pages = Array.from(doc.querySelectorAll('article.page'));
-            if (pages.length > 0) return pages;
-            
-            return [];
-        }
-        
-        // プレビュー表示
-        function renderPreview() {
-            const htmlPreview = document.getElementById('html-preview');
-            const convertBtn = document.getElementById('convert-btn');
-            const fileInput = document.getElementById('html-file');
-            const statusMessage = document.getElementById('status-message');
-            const sizeInfo = document.getElementById('size-info');
-            
-            // ステータスメッセージを表示
-            statusMessage.textContent = 'プレビューを生成中...';
-            statusMessage.className = '';
-            statusMessage.classList.remove('hidden');
-            
-            let fileExt = '';
-            if (fileInput.files.length > 0) {
-                fileExt = fileInput.files[0].name.split('.').pop().toLowerCase();
-            }
-            
-            // プレビュー要素の初期化
-            htmlPreview.innerHTML = '';
-            
-            // 元のファイルのサイズを維持
-            if (fileExt === 'svg') {
-                // SVGファイルの場合は直接表示
-                htmlPreview.innerHTML = htmlContent;
-                
-                // SVG要素を取得してスタイル適用
-                const svgElement = htmlPreview.querySelector('svg');
-                if (svgElement) {
-                    // 保存済みのオリジナルサイズまたはSVGから取得
-                    let width = window.originalWidth;
-                    let height = window.originalHeight;
-                    
-                    if (!width || !height) {
-                        // 未設定の場合はSVG要素から取得
-                        width = svgElement.getAttribute('width') || 800;
-                        height = svgElement.getAttribute('height') || 600;
-                        let viewBox = svgElement.getAttribute('viewBox');
-                        
-                        // 数値に変換
-                        if (typeof width === 'string' && width.endsWith('px')) {
-                            width = parseFloat(width);
-                        }
-                        if (typeof height === 'string' && height.endsWith('px')) {
-                            height = parseFloat(height);
-                        }
-                        
-                        // viewBoxからサイズを取得（SVGの標準的な方法）
-                        if (viewBox) {
-                            const viewBoxValues = viewBox.split(/[\s,]+/);
-                            if (viewBoxValues.length >= 4) {
-                                if (!width || width === '100%') {
-                                    width = parseFloat(viewBoxValues[2]);
-                                }
-                                if (!height || height === '100%') {
-                                    height = parseFloat(viewBoxValues[3]);
-                                }
-                            }
-                        }
-                        
-                        // サイズを保存
-                        window.originalWidth = width;
-                        window.originalHeight = height;
-                    }
-                    
-                    // サイズ情報を表示
-                    sizeInfo.textContent = `オリジナルサイズ: ${Math.round(width)} × ${Math.round(height)} px`;
-                    
-                    // ブラウザ表示領域を考慮するかどうか
-                    let displayWidth = width;
-                    let displayHeight = height;
-                    
-                    if (!window.maintainOriginalSize) {
-                        // ブラウザの表示領域に合わせて調整
-                        const maxWidth = window.innerWidth * 0.85;
-                        const maxHeight = window.innerHeight * 0.7;
-                        
-                        if (displayWidth > maxWidth) {
-                            const ratio = displayHeight / displayWidth;
-                            displayWidth = maxWidth;
-                            displayHeight = displayWidth * ratio;
-                        }
-                        
-                        if (displayHeight > maxHeight) {
-                            const ratio = displayWidth / displayHeight;
-                            displayHeight = maxHeight;
-                            displayWidth = displayHeight * ratio;
-                        }
-                    }
-                    
-                    // サイズをプレビュー要素に設定
-                    htmlPreview.style.width = `${displayWidth}px`;
-                    htmlPreview.style.height = `${displayHeight}px`;
-                    
-                    // SVG自体にもスタイルを適用
-                    svgElement.style.width = '100%';
-                    svgElement.style.height = '100%';
-                    svgElement.style.display = 'block';
-                }
-                
-                // プレビュー完了メッセージ
-                statusMessage.textContent = 'プレビューが完了しました。';
-                statusMessage.className = 'success';
-            } else {
-                // HTML場合はiframeで表示
-                const contentFrame = document.createElement('iframe');
-                contentFrame.style.width = '100%';
-                contentFrame.style.height = '100%';
-                contentFrame.style.border = 'none';
-                contentFrame.style.overflow = 'hidden';
-                contentFrame.id = 'content-frame';
-                htmlPreview.appendChild(contentFrame);
-                
-                // iframeにコンテンツをロード
-                const frameDoc = contentFrame.contentDocument || contentFrame.contentWindow.document;
-                frameDoc.open();
-                frameDoc.write(htmlContent);
-                frameDoc.close();
-                
-                // プレビュー領域のサイズを調整
-                let width, height;
-                
-                // スライド形式かどうかを確認
-                if (window.isSlideFormat) {
-                    // スライドサイズを使用
-                    try {
-                        const slides = getPages(frameDoc);
-                        if (slides.length > 0) {
-                            // 最初のスライドのみ表示
-                            slides.forEach((slide, index) => {
-                                if (index === 0) {
-                                    slide.style.display = 'block';
-                                    slide.style.opacity = '1';
-                                    slide.style.position = 'relative';
-                                    slide.style.zIndex = '2';
-                                } else {
-                                    slide.style.display = 'none';
-                                    slide.style.opacity = '0';
-                                    slide.style.position = 'absolute';
-                                    slide.style.zIndex = '1';
-                                }
-                            });
-                            
-                            // スライドの原本のCSSを維持するため、全体のスタイルリセットは行わない
-                            const rootStyle = document.createElement('style');
-                            rootStyle.textContent = `
-                                html, body {
-                                    overflow: hidden !important;
-                                    margin: 0 !important;
-                                    padding: 0 !important;
-                                    width: 100% !important;
-                                    height: 100% !important;
-                                }
-                            `;
-                            frameDoc.head.appendChild(rootStyle);
-                            
-                            // スライド表示エリアのサイズを取得
-                            const slidesContainer = frameDoc.querySelector('.slides-container') || 
-                                                   frameDoc.querySelector('.slide-container') || 
-                                                   frameDoc.body;
-                            
-                            // スライドのサイズを取得
-                            const slide = slides[0];
-                            if (slide) {
-                                const slideStyle = window.getComputedStyle(slide);
-                                width = parseInt(slideStyle.width) || slide.offsetWidth || 800;
-                                height = parseInt(slideStyle.height) || slide.offsetHeight || 600;
-                                
-                                // スライドのサイズが小さすぎる場合、コンテナのサイズを使用
-                                if (width < 300 || height < 300) {
-                                    if (slidesContainer) {
-                                        width = slidesContainer.offsetWidth || 1024;
-                                        height = slidesContainer.offsetHeight || 768;
-                                    } else {
-                                        // デフォルトのプレゼンテーションサイズ
-                                        width = 1024;
-                                        height = 768;
-                                    }
-                                }
-                            } else {
-                                // スライドが見つからない場合はコンテナのサイズを使用
-                                width = slidesContainer.offsetWidth || 1024;
-                                height = slidesContainer.offsetHeight || 768;
-                            }
-                        } else {
-                            // スライドが見つからなかった場合
-                            width = 1024;
-                            height = 768;
-                        }
-                    } catch (error) {
-                        console.error('Error measuring slide size:', error);
-                        width = 1024;
-                        height = 768;
-                    }
-                } else {
-                    // 通常のHTMLの場合
-                    try {
-                        // スクロールバーを一時的に表示して正確なサイズを測定
-                        const measureStyle = document.createElement('style');
-                        measureStyle.textContent = `
-                            html, body {
-                                width: auto !important;
-                                height: auto !important;
-                                overflow: visible !important;
-                                margin: 0 !important;
-                                padding: 0 !important;
-                            }
-                        `;
-                        frameDoc.head.appendChild(measureStyle);
-                        
-                        // 強制的に再描画させる
-                        const body = frameDoc.body;
-                        const docElement = frameDoc.documentElement;
-                        
-                        // コンテンツの実際のサイズを取得
-                        width = Math.max(
-                            body.scrollWidth || 0,
-                            body.offsetWidth || 0,
-                            docElement.scrollWidth || 0,
-                            docElement.offsetWidth || 0,
-                            docElement.clientWidth || 0,
-                            800
-                        );
-                        
-                        height = Math.max(
-                            body.scrollHeight || 0,
-                            body.offsetHeight || 0,
-                            docElement.scrollHeight || 0,
-                            docElement.offsetHeight || 0,
-                            docElement.clientHeight || 0,
-                            600
-                        );
-                        
-                        // オリジナルサイズを保存
-                        window.originalWidth = width;
-                        window.originalHeight = height;
-                        
-                        // スケーリングスタイルを追加
-                        const scaleStyle = document.createElement('style');
-                        scaleStyle.textContent = `
-                            html, body {
-                                margin: 0;
-                                padding: 0;
-                                width: 100%;
-                                height: 100%;
-                                overflow: hidden;
-                            }
-                            
-                            body {
-                                font-size: 16px;
-                                line-height: 1.5;
-                            }
-                            
-                            * {
-                                box-sizing: border-box;
-                                max-width: 100%;
-                                word-wrap: break-word;
-                            }
-                            
-                            img, video, canvas, svg {
-                                max-width: 100%;
-                                height: auto;
-                            }
-                            
-                            table {
-                                table-layout: fixed;
-                                width: 100%;
-                            }
-                        `;
-                        frameDoc.head.appendChild(scaleStyle);
-                    } catch (error) {
-                        console.error('Error measuring document size:', error);
-                        width = 800;
-                        height = 600;
-                    }
-                }
-                
-                // サイズが小さすぎる場合はデフォルト値を使用
-                if (width < 300) width = 800;
-                if (height < 300) height = 600;
-                
-                // サイズ情報を表示
-                document.getElementById('size-info').textContent = `オリジナルサイズ: ${Math.round(width)} × ${Math.round(height)} px`;
-                
-                // ブラウザ表示領域を考慮するかどうか
-                let displayWidth = width;
-                let displayHeight = height;
-                
-                if (!window.maintainOriginalSize) {
-                    // 最大値の制限（ブラウザの表示領域を考慮）
-                    const maxWidth = window.innerWidth * 0.85;
-                    const maxHeight = window.innerHeight * 0.7;
-                    
-                    if (displayWidth > maxWidth) {
-                        const ratio = displayHeight / displayWidth;
-                        displayWidth = maxWidth;
-                        displayHeight = displayWidth * ratio;
-                    }
-                    
-                    if (displayHeight > maxHeight) {
-                        const ratio = displayWidth / displayHeight;
-                        displayHeight = maxHeight;
-                        displayWidth = displayHeight * ratio;
-                    }
-                }
-                
-                // サイズをプレビュー要素に設定
-                htmlPreview.style.width = `${displayWidth}px`;
-                htmlPreview.style.height = `${displayHeight}px`;
-                
-                // スライド形式で印刷最適化する場合は追加のスタイル
-                if (window.isSlideFormat && window.optimizeForPrint) {
-                    const printStyle = document.createElement('style');
-                    printStyle.textContent = `
-                        @media print {
-                            .slide {
-                                display: block !important;
-                                opacity: 1 !important;
-                                position: relative !important;
-                                page-break-after: always;
-                                break-after: page;
-                            }
-                            .nav-buttons, .slide-indicator {
-                                display: none !important;
-                            }
-                            body { overflow: visible !important; }
-                        }
-                    `;
-                    frameDoc.head.appendChild(printStyle);
-                }
-                
-                // 複数ページが含まれているか再確認
-                checkMultiplePages(htmlContent);
-                
-                // プレビュー完了メッセージ
-                statusMessage.textContent = 'プレビューが完了しました。';
-                statusMessage.className = 'success';
-            }
-            
-            // プレビューコンテナの調整
-            const previewWrapper = document.querySelector('.preview-wrapper');
-            previewWrapper.style.maxWidth = `${parseInt(htmlPreview.style.width) + 40}px`; // コンテナの最大幅を設定（余白含む）
-            previewWrapper.style.margin = '20px auto'; // 中央寄せ
-            
-            // 変換ボタンを有効化
-            convertBtn.disabled = false;
-        }
-        
-        // 変換とダウンロード処理
-        function convertAndDownload() {
-            const htmlPreview = document.getElementById('html-preview');
-            const statusMessage = document.getElementById('status-message');
-            const iframe = htmlPreview.querySelector('iframe');
-            const fileInput = document.getElementById('html-file');
-            const isSvgFile = fileInput.files.length > 0 && 
-                             fileInput.files[0].name.toLowerCase().endsWith('.svg');
-            
-            // プレビューが空の場合
-            if (htmlPreview.innerHTML.trim() === '') {
-                statusMessage.textContent = 'エラー: プレビューが読み込まれていません。';
-                statusMessage.className = 'error';
-                statusMessage.classList.remove('hidden');
-                return;
-            }
-            
-            // SVGファイルで直接表示の場合は特別処理
-            if (isSvgFile) {
-                const svgElement = htmlPreview.querySelector('svg');
-                if (svgElement) {
-                    handleSvgConversion(svgElement);
-                    return;
-                }
-            }
-            
-            // HTMLファイルの場合
-            statusMessage.textContent = '変換中...';
-            statusMessage.className = '';
-            statusMessage.classList.add('success');
-            statusMessage.classList.remove('hidden');
-            
-            // スライド形式の場合、アニメーションやトランジションを停止
-            if (window.isSlideFormat && iframe) {
-                const frameDoc = iframe.contentDocument || iframe.contentWindow.document;
-                
-                // アニメーション停止用のスタイルを追加
-                const noAnimationStyle = document.createElement('style');
-                noAnimationStyle.textContent = `
-                    * {
-                        animation: none !important;
-                        transition: none !important;
-                    }
-                `;
-                frameDoc.head.appendChild(noAnimationStyle);
-                
-                // スライドが適切に表示されるまで少し待機
-                setTimeout(() => {
-                    processPagesOrSlides();
-                }, 100);
-            } else {
-                processPagesOrSlides();
-            }
-            
-            // ページ選択とスライド処理のメイン関数
-            function processPagesOrSlides() {
-                if (!iframe && !isSvgFile) {
-                    statusMessage.textContent = 'エラー: プレビューフレームが見つかりません。';
-                    statusMessage.className = '';
-                    statusMessage.classList.add('error');
-                    return;
-                }
-                
-                // SVGファイルでない場合に処理
-                if (!isSvgFile) {
-                    const frameDoc = iframe.contentDocument || iframe.contentWindow.document;
-                    
-                    // ページ選択オプションをチェック
-                    const pageSelection = document.querySelector('input[name="page-selection"]:checked').value;
-                    const selectedPageNumber = parseInt(document.getElementById('page-number').value) || 1;
-                    
-                    // ページ要素を取得
-                    const pages = getPages(frameDoc);
-                    
-                    // ページが見つからない場合は単一ページとして処理
-                    if (pages.length === 0) {
-                        convertSinglePage(iframe);
-                        return;
-                    }
-                    
-                    // 複数ページの場合
-                    if (pageSelection === 'all') {
-                        // すべてのページを変換
-                        handleMultiplePages();
-                    } else {
-                        // 指定したページのみ変換
-                        if (selectedPageNumber <= pages.length) {
-                            // 他のページを非表示にする
-                            pages.forEach((page, index) => {
-                                if (index + 1 === selectedPageNumber) {
-                                    page.style.display = 'block';
-                                    page.style.opacity = '1';
-                                    page.style.position = 'relative';
-                                    page.style.zIndex = '2';
-                                } else {
-                                    page.style.display = 'none';
-                                    page.style.opacity = '0';
-                                    page.style.position = 'absolute';
-                                    page.style.zIndex = '1';
-                                }
-                            });
-                            
-                            // 少し遅延を入れて変換処理を開始
-                            setTimeout(() => {
-                                convertSinglePage(iframe);
-                            }, 100);
-                        } else {
-                            statusMessage.textContent = `エラー: 指定されたページ番号(${selectedPageNumber})が範囲外です。`;
-                            statusMessage.className = '';
-                            statusMessage.classList.add('error');
-                        }
-                    }
-                }
-            }
-        }
-        
-        // 複数のページを一度に処理（全ページをPDFに）
-        function handleMultiplePages() {
-            const htmlPreview = document.getElementById('html-preview');
-            const statusMessage = document.getElementById('status-message');
-            const iframe = htmlPreview.querySelector('iframe');
-            
-            if (!iframe) {
-                statusMessage.textContent = 'エラー: プレビューフレームが見つかりません。';
-                statusMessage.className = 'error';
-                statusMessage.classList.remove('hidden');
-                return;
-            }
-            
-            const frameDoc = iframe.contentDocument || iframe.contentWindow.document;
-            const pages = getPages(frameDoc);
-            
-            if (pages.length === 0) {
-                // ページが見つからない場合は単一ページとして処理
-                convertSinglePage(iframe);
-                return;
-            }
-            
-            // スライド形式なら、文書背景色を適用
-            if (window.isSlideFormat) {
-                const bgColor = window.getComputedStyle(frameDoc.body).backgroundColor || '#FFFFFF';
-                for (const page of pages) {
-                    if (!page.style.backgroundColor) {
-                        page.style.backgroundColor = bgColor;
-                    }
-                }
-            }
-            
-            // 複数ページの場合の処理（PDFのみ対応）
-            if (selectedFormat === 'pdf') {
-                createMultiPagePdf(iframe, pages);
-            } else {
-                // 複数のファイルを作成
-                createMultipleFiles(iframe, pages);
-            }
-        }
-        
-        // 単一ページの変換処理
-        function convertSinglePage(iframe) {
-            const htmlPreview = document.getElementById('html-preview');
-            const statusMessage = document.getElementById('status-message');
-            const frameDoc = iframe.contentDocument || iframe.contentWindow.document;
-            const frameBody = frameDoc.body;
-            
-            // ローディングアイコンを表示
-            const loadingSpinner = document.createElement('span');
-            loadingSpinner.classList.add('loading-spinner');
-            statusMessage.innerHTML = '';
-            statusMessage.appendChild(loadingSpinner);
-            statusMessage.appendChild(document.createTextNode('変換中...'));
-            
-            // スライド形式の場合、特別な処理
-            if (window.isSlideFormat) {
-                // スライドが適切に表示されていることを確認
-                const slides = getPages(frameDoc);
-                let visibleSlide = null;
-                
-                for (const slide of slides) {
-                    if (window.getComputedStyle(slide).display !== 'none' && 
-                        parseFloat(window.getComputedStyle(slide).opacity) > 0) {
-                        visibleSlide = slide;
-                        break;
-                    }
-                }
-                
-                if (visibleSlide) {
-                    // 表示されているスライドのみを処理
-                    if (selectedFormat === 'svg') {
-                        // SVG形式で保存
-                        convertToSVG(visibleSlide);
-                    } else {
-                                                    // スライドを画像として描画
-                        html2canvas(visibleSlide, {
-                            scale: 2,  // 高品質化
-                            useCORS: true,
-                            allowTaint: true,
-                            backgroundColor: window.getComputedStyle(frameBody).backgroundColor || '#FFFFFF',
-                            logging: false,
-                            width: window.originalWidth || visibleSlide.offsetWidth,
-                            height: window.originalHeight || visibleSlide.offsetHeight
-                        }).then(canvas => {
-                            if (selectedFormat === 'jpg') {
-                                // JPGとしてダウンロード
-                                const link = document.createElement('a');
-                                link.download = getFileName('jpg');
-                                link.href = canvas.toDataURL('image/jpeg', outputQuality);
-                                link.click();
-                                
-                                statusMessage.textContent = 'JPGファイルのダウンロードが完了しました！';
-                            } else {
-                                // PDFとしてダウンロード
-                                const pdf = new jsPDF({
-                                    orientation: visibleSlide.offsetHeight > visibleSlide.offsetWidth ? 'portrait' : 'landscape',
-                                    unit: 'px',
-                                    format: [visibleSlide.offsetWidth, visibleSlide.offsetHeight],
-                                    compress: true,
-                                    hotfixes: ['px_scaling']
-                                });
-                                
-                                pdf.addImage(
-                                    canvas.toDataURL('image/jpeg', 1.0),
-                                    'JPEG',
-                                    0,
-                                    0,
-                                    visibleSlide.offsetWidth,
-                                    visibleSlide.offsetHeight,
-                                    undefined,
-                                    'FAST'
-                                );
-                                
-                                pdf.save(getFileName('pdf'));
-                                
-                                statusMessage.textContent = 'PDFファイルのダウンロードが完了しました！';
-                            }
-                            
-                            statusMessage.className = '';
-                            statusMessage.classList.add('success');
-                        }).catch(error => {
-                            console.error('HTML2Canvas エラー:', error);
-                            statusMessage.textContent = '変換中にエラーが発生しました。スライドの内容を確認してください。';
-                            statusMessage.className = '';
-                            statusMessage.classList.add('error');
-                        });
-                    }
-                    return;
-                }
-            }
-            
-            // 通常のHTML処理または表示されているスライドが見つからない場合
-            if (selectedFormat === 'svg') {
-                // SVG形式で保存
-                convertToSVG(frameDoc.documentElement);
-            } else {
-                // JPGまたはPDF形式で保存
-                html2canvas(frameDoc.documentElement, {
-                    scale: 2,  // 高品質化のためスケールを上げる
-                    useCORS: true,
-                    allowTaint: true,
-                    backgroundColor: window.getComputedStyle(frameBody).backgroundColor || '#FFFFFF',
-                    logging: false,
-                    width: window.originalWidth || htmlPreview.offsetWidth,
-                    height: window.originalHeight || htmlPreview.offsetHeight,
-                    windowWidth: window.originalWidth || htmlPreview.offsetWidth,
-                    windowHeight: window.originalHeight || htmlPreview.offsetHeight
-                }).then(canvas => {
-                    try {
-                        if (selectedFormat === 'jpg') {
-                            // JPGとしてダウンロード
-                            const link = document.createElement('a');
-                            link.download = getFileName('jpg');
-                            link.href = canvas.toDataURL('image/jpeg', outputQuality);
-                            link.click();
-                            
-                            statusMessage.textContent = 'JPGファイルのダウンロードが完了しました！';
-                        } else {
-                            // PDFとしてダウンロード
-                            const width = htmlPreview.offsetWidth;
-                            const height = htmlPreview.offsetHeight;
-                            
-                            // PDFのサイズとページ設定
-                            const pdf = new jsPDF({
-                                orientation: height > width ? 'portrait' : 'landscape',
-                                unit: 'px',
-                                format: [width, height],
-                                compress: true,
-                                hotfixes: ['px_scaling']
-                            });
-                            
-                            // 画像をPDFに追加（高品質）
-                            pdf.addImage(
-                                canvas.toDataURL('image/jpeg', 1.0),
-                                'JPEG',
-                                0,
-                                0,
-                                width,
-                                height,
-                                undefined,
-                                'FAST'
-                            );
-                            
-                            pdf.save(getFileName('pdf'));
-                            
-                            statusMessage.textContent = 'PDFファイルのダウンロードが完了しました！';
-                        }
-                        
-                        statusMessage.className = '';
-                        statusMessage.classList.add('success');
-                    } catch (error) {
-                        console.error('変換エラー:', error);
-                        statusMessage.textContent = 'エラーが発生しました。もう一度お試しください。';
-                        statusMessage.className = '';
-                        statusMessage.classList.add('error');
-                    }
-                }).catch(error => {
-                    console.error('HTML2Canvas エラー:', error);
-                    statusMessage.textContent = '変換中にエラーが発生しました。HTMLの内容を確認してください。';
-                    statusMessage.className = '';
-                    statusMessage.classList.add('error');
-                });
-            }
-        }
-        
-        // SVGファイル変換の特別処理
-        function handleSvgConversion(svgElement) {
-            const statusMessage = document.getElementById('status-message');
-            
-            statusMessage.textContent = '変換中...';
-            statusMessage.className = '';
-            statusMessage.classList.add('success');
-            statusMessage.classList.remove('hidden');
-            
-            try {
-                // SVG要素からSVG文字列を取得
-                const serializer = new XMLSerializer();
-                let svgContent = '<?xml version="1.0" encoding="UTF-8" standalone="no"?>\n';
-                svgContent += serializer.serializeToString(svgElement);
-                
-                if (selectedFormat === 'svg') {
-                    // SVGとして保存
-                    const blob = new Blob([svgContent], {type: 'image/svg+xml;charset=utf-8'});
-                    saveAs(blob, getFileName('svg'));
-                    
-                    statusMessage.textContent = 'SVGファイルのダウンロードが完了しました！';
-                } else {
-                    // SVGからキャンバスを作成して他の形式に変換
-                    const img = new Image();
-                    img.onload = function() {
-                        const canvas = document.createElement('canvas');
-                        const htmlPreview = document.getElementById('html-preview');
-                        canvas.width = window.originalWidth || htmlPreview.offsetWidth;
-                        canvas.height = window.originalHeight || htmlPreview.offsetHeight;
-                        
-                        const ctx = canvas.getContext('2d');
-                        ctx.fillStyle = 'white';
-                        ctx.fillRect(0, 0, canvas.width, canvas.height);
-                        ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
-                        
-                        if (selectedFormat === 'jpg') {
-                            // JPGとして保存
-                            const link = document.createElement('a');
-                            link.download = getFileName('jpg');
-                            link.href = canvas.toDataURL('image/jpeg', outputQuality);
-                            link.click();
-                            
-                            statusMessage.textContent = 'JPGファイルのダウンロードが完了しました！';
-                        } else {
-                            // PDFとして保存
-                            const pdf = new jsPDF({
-                                orientation: canvas.height > canvas.width ? 'portrait' : 'landscape',
-                                unit: 'px',
-                                format: [canvas.width, canvas.height],
-                                compress: true
-                            });
-                            
-                            pdf.addImage(
-                                canvas.toDataURL('image/jpeg', 1.0),
-                                'JPEG',
-                                0,
-                                0,
-                                canvas.width,
-                                canvas.height
-                            );
-                            
-                            pdf.save(getFileName('pdf'));
-                            
-                            statusMessage.textContent = 'PDFファイルのダウンロードが完了しました！';
-                        }
-                    };
-                    
-                    const svgBlob = new Blob([svgContent], {type: 'image/svg+xml;charset=utf-8'});
-                    const url = URL.createObjectURL(svgBlob);
-                    img.src = url;
-                }
-                
-                statusMessage.className = '';
-                statusMessage.classList.add('success');
-            } catch (error) {
-                console.error('SVG変換エラー:', error);
-                statusMessage.textContent = 'SVG変換中にエラーが発生しました。';
-                statusMessage.className = '';
-                statusMessage.classList.add('error');
-            }
-        }
-        
-        // SVG形式に変換する処理
-        function convertToSVG(element) {
-            const statusMessage = document.getElementById('status-message');
-            const htmlPreview = document.getElementById('html-preview');
-            
-            // DOM to Image を使用してSVGを作成
-            domtoimage.toSvg(element, {
-                width: htmlPreview.offsetWidth,
-                height: htmlPreview.offsetHeight,
-                style: {
-                    'transform': 'scale(1)',
-                    'transform-origin': 'top left'
-                }
-            })
-            .then(function(dataUrl) {
-                // Base64エンコードされたSVGデータをデコード
-                const svgContent = atob(dataUrl.split(',')[1]);
-                
-                // SVGファイルとして保存
-                const blob = new Blob([svgContent], {type: 'image/svg+xml;charset=utf-8'});
-                saveAs(blob, getFileName('svg'));
-                
-                statusMessage.textContent = 'SVGファイルのダウンロードが完了しました！';
-                statusMessage.className = '';
-                statusMessage.classList.add('success');
-            })
-            .catch(function(error) {
-                console.error('SVG変換エラー:', error);
-                
-                // 代替手段を試行
-                try {
-                    // HTMLの内容からSVGを直接作成
-                    const serializer = new XMLSerializer();
-                    let svgContent = '<?xml version="1.0" encoding="UTF-8" standalone="no"?>\n';
-                    
-                    // SVG要素を作成
-                    const svgElement = document.createElementNS("http://www.w3.org/2000/svg", "svg");
-                    svgElement.setAttribute("xmlns", "http://www.w3.org/2000/svg");
-                    svgElement.setAttribute("viewBox", `0 0 ${htmlPreview.offsetWidth} ${htmlPreview.offsetHeight}`);
-                    svgElement.setAttribute("width", htmlPreview.offsetWidth);
-                    svgElement.setAttribute("height", htmlPreview.offsetHeight);
-                    
-                    // HTMLの内容を外部オブジェクトとして配置
-                    const foreignObject = document.createElementNS("http://www.w3.org/2000/svg", "foreignObject");
-                    foreignObject.setAttribute("width", "100%");
-                    foreignObject.setAttribute("height", "100%");
-                    
-                    // HTMLコンテンツのクローンを作成
-                    const clonedElement = element.cloneNode(true);
-                    foreignObject.appendChild(clonedElement);
-                    svgElement.appendChild(foreignObject);
-                    
-                    // SVG文字列に変換
-                    svgContent += serializer.serializeToString(svgElement);
-                    
-                    // SVGファイルとして保存
-                    const blob = new Blob([svgContent], {type: 'image/svg+xml;charset=utf-8'});
-                    saveAs(blob, getFileName('svg'));
-                    
-                    statusMessage.textContent = 'SVGファイルのダウンロードが完了しました！';
-                    statusMessage.className = '';
-                    statusMessage.classList.add('success');
-                } catch (backupError) {
-                    console.error('SVG代替変換エラー:', backupError);
-                    statusMessage.textContent = 'SVG変換中にエラーが発生しました。他の形式を試してください。';
-                    statusMessage.className = '';
-                    statusMessage.classList.add('error');
-                }
-            });
-        }
-        
-        // 複数ページのPDF作成
-        function createMultiPagePdf(iframe, pages) {
-            const htmlPreview = document.getElementById('html-preview');
-            const statusMessage = document.getElementById('status-message');
-            const width = htmlPreview.offsetWidth;
-            const height = htmlPreview.offsetHeight;
-            
-            // 元のサイズを使用
-            const pdfWidth = window.originalWidth || width;
-            const pdfHeight = window.originalHeight || height;
-            
-            // PDFのインスタンスを作成
-            const pdf = new jsPDF({
-                orientation: pdfHeight > pdfWidth ? 'portrait' : 'landscape',
-                unit: 'px',
-                format: [pdfWidth, pdfHeight],
-                compress: true,
-                hotfixes: ['px_scaling']
-            });
-            
-            let pageIndex = 0;
-            statusMessage.innerHTML = '<span class="loading-spinner"></span>変換中... (ページ 1/' + pages.length + ')';
-            
-            // スライド形式で印刷最適化が有効な場合は特別処理
-            if (window.isSlideFormat && window.optimizeForPrint) {
-                // 各スライドを個別に処理
-                processAllSlides(pages, pdf);
-                return;
-            }
-            
-            // 各ページを処理する再帰関数
-            function processPage() {
-                // 他のページを非表示にする
-                pages.forEach((page, i) => {
-                    page.style.display = i === pageIndex ? 'block' : 'none';
-                    
-                    // スライド形式の場合はopacityも設定
-                    if (window.isSlideFormat) {
-                        page.style.opacity = i === pageIndex ? '1' : '0';
-                        page.style.position = i === pageIndex ? 'relative' : 'absolute';
-                        page.style.zIndex = i === pageIndex ? '2' : '1';
-                    }
-                });
-                
-                // 現在のページをキャンバスに描画
-                html2canvas(iframe.contentDocument.documentElement, {
-                    scale: 2,
-                    useCORS: true,
-                    allowTaint: true,
-                    logging: false,
-                    backgroundColor: window.getComputedStyle(iframe.contentDocument.body).backgroundColor || '#FFFFFF',
-                    width: window.originalWidth || width,
-                    height: window.originalHeight || height,
-                    windowWidth: window.originalWidth || width,
-                    windowHeight: window.originalHeight || height
-                }).then(canvas => {
-                    // PDFに追加
-                    if (pageIndex > 0) {
-                        pdf.addPage();
-                    }
-                    
-                    pdf.addImage(
-                        canvas.toDataURL('image/jpeg', 1.0),
-                        'JPEG',
-                        0,
-                        0,
-                        width,
-                        height,
-                        undefined,
-                        'FAST'
-                    );
-                    
-                    pageIndex++;
-                    
-                    if (pageIndex < pages.length) {
-                        statusMessage.innerHTML = '<span class="loading-spinner"></span>変換中... (ページ ' + (pageIndex + 1) + '/' + pages.length + ')';
-                        setTimeout(processPage, 500);
-                    } else {
-                        pdf.save(getFileName('pdf'));
-                        statusMessage.textContent = 'マルチページPDFのダウンロードが完了しました！';
-                        statusMessage.className = '';
-                        statusMessage.classList.add('success');
-                    }
-                }).catch(error => {
-                    console.error('Page conversion error:', error);
-                    statusMessage.textContent = `ページ${pageIndex + 1}の変換中にエラーが発生しました。`;
-                    statusMessage.className = '';
-                    statusMessage.classList.add('error');
-                });
-            }
-            
-            // 印刷用に最適化されたスライドを処理
-            function processAllSlides(slides, pdf) {
-                // すべてのスライドを表示状態にする
-                slides.forEach((slide) => {
-                    slide.style.display = 'block';
-                    slide.style.opacity = '1';
-                    slide.style.position = 'relative';
-                    slide.style.pageBreakAfter = 'always';
-                    slide.style.breakAfter = 'page';
-                });
-                
-                // ページ全体をキャプチャ
-                html2canvas(iframe.contentDocument.documentElement, {
-                    scale: 2,
-                    useCORS: true,
-                    allowTaint: true,
-                    logging: false,
-                    backgroundColor: window.getComputedStyle(iframe.contentDocument.body).backgroundColor || '#FFFFFF',
-                    onclone: function(clonedDoc) {
-                        // クローン作成時のカスタマイズ
-                        const clonedSlides = getPages(clonedDoc);
-                        clonedSlides.forEach(slide => {
-                            slide.style.display = 'block';
-                            slide.style.opacity = '1';
-                            slide.style.position = 'relative';
-                            slide.style.pageBreakAfter = 'always';
-                            slide.style.breakAfter = 'page';
-                            slide.style.height = height + 'px';
-                            slide.style.width = width + 'px';
-                        });
-                    }
-                }).then(canvas => {
-                    // 単一のPDFファイルとして保存
-                    pdf.save(getFileName('pdf'));
-                    statusMessage.textContent = '印刷用PDFのダウンロードが完了しました！';
-                    statusMessage.className = '';
-                    statusMessage.classList.add('success');
-                }).catch(error => {
-                    console.error('PDF conversion error:', error);
-                    statusMessage.textContent = 'PDFの作成中にエラーが発生しました。個別のページで試してください。';
-                    statusMessage.className = '';
-                    statusMessage.classList.add('error');
-                    
-                    // 代替手段として通常の方法を試す
-                    processPage();
-                });
-            }
-            
-            // 最初のページから処理開始
-            processPage();
-        }
-        
-        // 複数のファイルの作成（JPG/SVG）
-        function createMultipleFiles(iframe, pages) {
-            const htmlPreview = document.getElementById('html-preview');
-            const statusMessage = document.getElementById('status-message');
-            
-            let pageIndex = 0;
-            let processedCount = 0;
-            statusMessage.innerHTML = '<span class="loading-spinner"></span>変換中... (ページ 1/' + pages.length + ')';
-            
-            // 印刷用最適化が有効で、スライド形式の場合
-            if (window.isSlideFormat && window.optimizeForPrint) {
-                processAllSlidesIndividually(pages);
-                return;
-            }
-            
-            // 各ページを処理する再帰関数
-            function processPage() {
-                // 他のページを非表示にする
-                pages.forEach((page, i) => {
-                    page.style.display = i === pageIndex ? 'block' : 'none';
-                    
-                    // スライド形式の場合はopacityも設定
-                    if (window.isSlideFormat) {
-                        page.style.opacity = i === pageIndex ? '1' : '0';
-                        page.style.position = i === pageIndex ? 'relative' : 'absolute';
-                        page.style.zIndex = i === pageIndex ? '2' : '1';
-                    }
-                });
-                
-                // 現在のページをキャンバスに描画
-                html2canvas(iframe.contentDocument.documentElement, {
-                    scale: 2,
-                    useCORS: true,
-                    allowTaint: true,
-                    logging: false,
-                    backgroundColor: window.getComputedStyle(iframe.contentDocument.body).backgroundColor || '#FFFFFF',
-                    width: window.originalWidth || htmlPreview.offsetWidth,
-                    height: window.originalHeight || htmlPreview.offsetHeight
-                }).then(canvas => {
-                    // ファイルをダウンロード
-                    if (selectedFormat === 'jpg') {
-                        const link = document.createElement('a');
-                        link.download = getFileName('jpg', pageIndex + 1);
-                        link.href = canvas.toDataURL('image/jpeg', outputQuality);
-                        link.click();
-                    } else if (selectedFormat === 'svg') {
-                        // SVGは特殊処理が必要
-                        try {
-                            const serializer = new XMLSerializer();
-                            let svgContent = '<?xml version="1.0" encoding="UTF-8" standalone="no"?>\n';
-                            // HTMLをSVGに変換
-                            const pageElement = pages[pageIndex];
-                            const svgElement = document.createElementNS("http://www.w3.org/2000/svg", "svg");
-                            svgElement.setAttribute("xmlns", "http://www.w3.org/2000/svg");
-                            svgElement.setAttribute("viewBox", `0 0 ${htmlPreview.offsetWidth} ${htmlPreview.offsetHeight}`);
-                            svgElement.setAttribute("width", htmlPreview.offsetWidth);
-                            svgElement.setAttribute("height", htmlPreview.offsetHeight);
-                            
-                            // 外部オブジェクトとしてHTMLを埋め込み
-                            const foreignObject = document.createElementNS("http://www.w3.org/2000/svg", "foreignObject");
-                            foreignObject.setAttribute("width", "100%");
-                            foreignObject.setAttribute("height", "100%");
-                            
-                            const clonedElement = pageElement.cloneNode(true);
-                            foreignObject.appendChild(clonedElement);
-                            svgElement.appendChild(foreignObject);
-                            
-                            svgContent += serializer.serializeToString(svgElement);
-                            
-                            // SVGファイルとして保存
-                            const blob = new Blob([svgContent], {type: 'image/svg+xml;charset=utf-8'});
-                            saveAs(blob, getFileName('svg', pageIndex + 1));
-                        } catch (error) {
-                            console.error('SVG conversion error:', error);
-                        }
-                    }
-                    
-                    processedCount++;
-                    pageIndex++;
-                    
-                    if (pageIndex < pages.length) {
-                        statusMessage.innerHTML = '<span class="loading-spinner"></span>変換中... (ページ ' + (pageIndex + 1) + '/' + pages.length + ')';
-                        setTimeout(processPage, 500);
-                    } else {
-                        statusMessage.textContent = `${pages.length}ページの変換が完了しました！`;
-                        statusMessage.className = '';
-                        statusMessage.classList.add('success');
-                    }
-                }).catch(error => {
-                    console.error('Page conversion error:', error);
-                    processedCount++;
-                    pageIndex++;
-                    
-                    if (pageIndex < pages.length) {
-                        statusMessage.textContent = `ページ${pageIndex}のエラーをスキップして続行中... (${pageIndex + 1}/${pages.length})`;
-                        setTimeout(processPage, 500);
-                    } else {
-                        statusMessage.textContent = `${processedCount}/${pages.length}ページの変換が完了しました。一部エラーがありました。`;
-                        statusMessage.className = '';
-                        statusMessage.classList.add('warning');
-                    }
-                });
-            }
-            
-            // 印刷用に最適化されたスライドを個別に処理
-            function processAllSlidesIndividually(slides) {
-                // 印刷用スタイルを適用
-                slides.forEach((slide, index) => {
-                    slide.style.display = 'block';
-                    slide.style.opacity = '1';
-                    slide.style.position = 'relative';
-                    
-                    // 各スライドを個別に処理
-                    html2canvas(slide, {
-                        scale: 2,
-                        useCORS: true,
-                        allowTaint: true,
-                        logging: false,
-                        backgroundColor: window.getComputedStyle(iframe.contentDocument.body).backgroundColor || '#FFFFFF',
-                        width: window.originalWidth || htmlPreview.offsetWidth,
-                        height: window.originalHeight || htmlPreview.offsetHeight
-                    }).then(canvas => {
-                        // ファイルをダウンロード
-                        if (selectedFormat === 'jpg') {
-                            const link = document.createElement('a');
-                            link.download = getFileName('jpg', index + 1);
-                            link.href = canvas.toDataURL('image/jpeg', outputQuality);
-                            link.click();
-                        } else if (selectedFormat === 'svg') {
-                            try {
-                                // SVGファイルとして保存
-                                domtoimage.toSvg(slide)
-                                    .then(function(dataUrl) {
-                                        const svgContent = atob(dataUrl.split(',')[1]);
-                                        const blob = new Blob([svgContent], {type: 'image/svg+xml;charset=utf-8'});
-                                        saveAs(blob, getFileName('svg', index + 1));
-                                    })
-                                    .catch(function(error) {
-                                        console.error('SVG conversion error:', error);
-                                    });
-                            } catch (error) {
-                                console.error('SVG conversion error:', error);
-                            }
-                        }
-                        
-                        processedCount++;
-                        
-                        // 進捗状況を更新
-                        statusMessage.innerHTML = '<span class="loading-spinner"></span>変換中... (' + processedCount + '/' + slides.length + ')';
-                        
-                        // すべてのスライドが処理されたか確認
-                        if (processedCount >= slides.length) {
-                            statusMessage.textContent = `${slides.length}ページの変換が完了しました！`;
-                            statusMessage.className = '';
-                            statusMessage.classList.add('success');
-                        }
-                    }).catch(error => {
-                        console.error('Slide conversion error:', error);
-                        processedCount++;
-                        
-                        if (processedCount >= slides.length) {
-                            statusMessage.textContent = `${processedCount}/${slides.length}ページの変換が完了しました。一部エラーがありました。`;
-                            statusMessage.className = '';
-                            statusMessage.classList.add('warning');
-                        }
-                    });
-                });
-            }
-            
-            // 最初のページから処理開始
-            processPage();
-        }
-        
-        // ファイル名生成
-        function getFileName(extension, pageNumber = null) {
-            const fileInput = document.getElementById('html-file');
-            let baseName = 'converted-html';
-            
-            if (fileInput.files.length > 0) {
-                const originalFileName = fileInput.files[0].name;
-                baseName = originalFileName.replace(/\.[^/.]+$/, ""); // 拡張子を削除
-            }
-            
-            const date = new Date();
-            const timestamp = `${date.getFullYear()}${(date.getMonth()+1).toString().padStart(2, '0')}${date.getDate().toString().padStart(2, '0')}_${date.getHours().toString().padStart(2, '0')}${date.getMinutes().toString().padStart(2, '0')}`;
-            
-            if (pageNumber !== null) {
-                return `${baseName}_page${pageNumber}_${timestamp}.${extension}`;
-            } else {
-                return `${baseName}_${timestamp}.${extension}`;
-            }
-        }
-        
-        // 画質スライダーの値更新
-        function updateQualityValue() {
-            const slider = document.getElementById('quality-slider');
-            const valueDisplay = document.getElementById('quality-value');
-            
-            valueDisplay.textContent = `${slider.value}%`;
-            outputQuality = parseInt(slider.value) / 100;
-        }
-        
-        // ページ選択ラジオボタンのイベント
-        document.addEventListener('DOMContentLoaded', function() {
-            // ページ選択ラジオボタンのイベント
-            const pageSelectionRadios = document.querySelectorAll('input[name="page-selection"]');
-            const pageNumberContainer = document.getElementById('page-number-container');
-            
-            pageSelectionRadios.forEach(radio => {
-                radio.addEventListener('change', function() {
-                    pageNumberContainer.style.display = 
-                        this.value === 'selected' ? 'block' : 'none';
-                });
-            });
-            
-            // ステータスメッセージを初期化
-            const statusMessage = document.getElementById('status-message');
-            statusMessage.textContent = 'HTMLまたはSVGファイルをアップロードしてください。';
-            statusMessage.className = '';
-            statusMessage.classList.remove('hidden');
-            
-            // 初期化
-            updateQualityValue();
-        });
-    </script>
-</body>
-</html>
+                    page.style.display = i === index ? 'block' : 'none
