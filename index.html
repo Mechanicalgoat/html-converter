@@ -1517,10 +1517,6 @@
                         try {
                             const serializer = new XMLSerializer();
                             let svgContent = '<?xml version="1.0" encoding="UTF-8" standalone="no"?>\n';
-                            
-                            // HTMLをSVGに変換
-                            const pageElement = pages[pageIndex];
-                            const svgElement = document.createElementN
             // HTMLをSVGに変換
                             const pageElement = pages[pageIndex];
                             const svgElement = document.createElementNS("http://www.w3.org/2000/svg", "svg");
