@@ -3,52 +3,90 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>HTML/SVG コンバーター</title>
+    <title>HTML/SVG/スライドコンバーター</title>
     <style>
-        /* ベーススタイル */
-        body {
-            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, 'Open Sans', 'Helvetica Neue', sans-serif;
-            line-height: 1.6;
-            max-width: 800px;
-            margin: 0 auto;
-            padding: 20px;
-            background-color: #f4f4f4;
+        :root {
+            --primary-dark: #2A2D34;
+            --primary-blue: #4A90E2;
+            --primary-light: #FFFFFF;
+            --accent-blue: #0095DA;
+            --secondary-blue: #5C2D91;
+            --accent-purple: #A100FF;
         }
 
-        .container {
-            background-color: white;
-            border-radius: 8px;
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Arial', sans-serif;
+            background-color: #f4f4f4;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+            margin: 0;
+        }
+
+        .converter-container {
+            background-color: var(--primary-light);
+            border-radius: 10px;
             box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+            width: 100%;
+            max-width: 600px;
             padding: 30px;
         }
 
         .file-drop-zone {
-            border: 2px dashed #ccc;
+            border: 2px dashed var(--primary-blue);
             border-radius: 8px;
-            padding: 30px;
+            padding: 40px;
             text-align: center;
-            transition: background-color 0.3s;
+            transition: all 0.3s ease;
         }
 
         .file-drop-zone.drag-over {
-            background-color: #f0f0f0;
-            border-color: #007bff;
+            background-color: rgba(74, 144, 226, 0.1);
+            border-color: var(--primary-blue);
+        }
+
+        #file-input {
+            display: none;
+        }
+
+        .drop-text {
+            color: var(--primary-dark);
+            font-size: 18px;
+        }
+
+        .preview-container {
+            margin-top: 20px;
+            max-height: 400px;
+            overflow: auto;
+            border: 1px solid var(--primary-blue);
+            border-radius: 8px;
+        }
+
+        .conversion-options {
+            display: flex;
+            justify-content: space-between;
+            margin-top: 20px;
         }
 
         .btn {
-            display: inline-block;
-            padding: 10px 20px;
-            margin: 10px 0;
-            background-color: #007bff;
+            background-color: var(--primary-blue);
             color: white;
             border: none;
+            padding: 10px 20px;
             border-radius: 5px;
             cursor: pointer;
-            transition: background-color 0.3s;
+            transition: background-color 0.3s ease;
         }
 
         .btn:hover {
-            background-color: #0056b3;
+            background-color: var(--secondary-blue);
         }
 
         .btn:disabled {
@@ -56,78 +94,62 @@
             cursor: not-allowed;
         }
 
-        #preview {
-            max-width: 100%;
-            max-height: 500px;
-            overflow: auto;
-            margin-top: 20px;
-            border: 1px solid #ddd;
-        }
-
-        #status {
+        #status-message {
             margin-top: 15px;
             padding: 10px;
             border-radius: 5px;
+            text-align: center;
         }
 
-        .status-success {
-            background-color: #dff0d8;
-            color: #3c763d;
+        .success {
+            background-color: rgba(76, 175, 80, 0.1);
+            color: #4CAF50;
         }
 
-        .status-error {
-            background-color: #f2dede;
-            color: #a94442;
+        .error {
+            background-color: rgba(244, 67, 54, 0.1);
+            color: #F44336;
         }
     </style>
 </head>
 <body>
-    <div class="container">
-        <h1>HTML/SVG コンバーター</h1>
-        
+    <div class="converter-container">
         <div id="file-drop-zone" class="file-drop-zone">
-            <input type="file" id="file-input" accept=".html,.htm,.svg" style="display:none;">
+            <input type="file" id="file-input" accept=".html,.htm,.svg">
             <label for="file-input" class="btn">ファイルを選択</label>
-            <p>またはここにファイルをドラッグ&ドロップ</p>
+            <p class="drop-text">またはここにファイルをドラッグ&ドロップ</p>
         </div>
 
-        <div id="options" style="display:none; margin-top: 20px;">
-            <h3>変換オプション</h3>
-            <select id="format-select">
+        <div class="conversion-options">
+            <select id="output-format">
                 <option value="pdf">PDF</option>
                 <option value="png">PNG</option>
                 <option value="svg">SVG</option>
             </select>
+            <button id="convert-btn" class="btn" disabled>変換</button>
         </div>
 
-        <div id="preview-section" style="display:none; margin-top: 20px;">
-            <h3>プレビュー</h3>
+        <div id="preview-container" class="preview-container">
             <div id="preview"></div>
         </div>
 
-        <button id="convert-btn" class="btn" style="display:none;">変換</button>
-
-        <div id="status"></div>
+        <div id="status-message"></div>
     </div>
 
     <script>
-        // デバッグ用のグローバル変数
-        window.converterDebug = {
-            fileContent: null,
-            fileType: null
-        };
+        // グローバル変数
+        let fileContent = null;
+        let fileType = null;
 
-        // DOMエレメントの取得
+        // DOM要素の取得
         const fileDropZone = document.getElementById('file-drop-zone');
         const fileInput = document.getElementById('file-input');
-        const previewSection = document.getElementById('preview-section');
-        const preview = document.getElementById('preview');
-        const optionsSection = document.getElementById('options');
-        const formatSelect = document.getElementById('format-select');
         const convertBtn = document.getElementById('convert-btn');
-        const statusDiv = document.getElementById('status');
+        const previewContainer = document.getElementById('preview');
+        const statusMessage = document.getElementById('status-message');
+        const outputFormat = document.getElementById('output-format');
 
-        // ドラッグ&ドロップイベントの設定
+        // デフォルトのドラッグ&ドロップイベント防止
         ['dragenter', 'dragover', 'dragleave', 'drop'].forEach(eventName => {
             fileDropZone.addEventListener(eventName, preventDefaults, false);
         });
@@ -137,6 +159,7 @@
             e.stopPropagation();
         }
 
+        // ドラッグ時のスタイル変更
         fileDropZone.addEventListener('dragenter', highlight, false);
         fileDropZone.addEventListener('dragover', highlight, false);
         fileDropZone.addEventListener('dragleave', unhighlight, false);
@@ -154,6 +177,7 @@
         fileInput.addEventListener('change', handleFiles, false);
 
         function handleDrop(e) {
+            unhighlight();
             const dt = e.dataTransfer;
             const files = dt.files;
             handleFileSelect(files[0]);
@@ -166,39 +190,18 @@
         function handleFileSelect(file) {
             if (!file) return;
 
-            // ファイルタイプの確認
-            const fileExt = file.name.split('.').pop().toLowerCase();
-            if (!['html', 'htm', 'svg'].includes(fileExt)) {
-                showStatus('サポートされていないファイル形式です', 'error');
-                return;
-            }
-
             const reader = new FileReader();
             reader.onload = function(e) {
-                // ファイルの内容を保存
-                window.converterDebug.fileContent = e.target.result;
-                window.converterDebug.fileType = fileExt;
+                fileContent = e.target.result;
+                fileType = file.name.split('.').pop().toLowerCase();
 
-                // プレビューを表示
-                if (fileExt === 'svg') {
-                    preview.innerHTML = e.target.result;
-                } else {
-                    const iframe = document.createElement('iframe');
-                    iframe.style.width = '100%';
-                    iframe.style.height = '500px';
-                    preview.innerHTML = '';
-                    preview.appendChild(iframe);
-                    
-                    const iframeDoc = iframe.contentDocument || iframe.contentWindow.document;
-                    iframeDoc.open();
-                    iframeDoc.write(e.target.result);
-                    iframeDoc.close();
-                }
+                // プレビュー表示
+                displayPreview(fileContent, fileType);
 
-                // UIを更新
-                previewSection.style.display = 'block';
-                optionsSection.style.display = 'block';
-                convertBtn.style.display = 'block';
+                // 変換ボタンを有効化
+                convertBtn.disabled = false;
+
+                // ステータスメッセージ
                 showStatus('ファイルが正常に読み込まれました', 'success');
             };
 
@@ -209,29 +212,48 @@
             reader.readAsText(file);
         }
 
-        // 変換ボタンのイベント
+        function displayPreview(content, type) {
+            previewContainer.innerHTML = '';
+
+            if (type === 'svg') {
+                // SVGの場合はそのまま表示
+                previewContainer.innerHTML = content;
+            } else {
+                // HTMLの場合はiframeで表示
+                const iframe = document.createElement('iframe');
+                iframe.style.width = '100%';
+                iframe.style.height = '400px';
+                iframe.style.border = 'none';
+                previewContainer.appendChild(iframe);
+
+                const iframeDoc = iframe.contentDocument || iframe.contentWindow.document;
+                iframeDoc.open();
+                iframeDoc.write(content);
+                iframeDoc.close();
+            }
+        }
+
+        // 変換ボタンのイベントリスナー
         convertBtn.addEventListener('click', convertFile);
 
         function convertFile() {
-            const content = window.converterDebug.fileContent;
-            const fileType = window.converterDebug.fileType;
-            const format = formatSelect.value;
-
-            if (!content) {
+            if (!fileContent) {
                 showStatus('ファイルが選択されていません', 'error');
                 return;
             }
 
+            const format = outputFormat.value;
+
             try {
                 switch(format) {
                     case 'pdf':
-                        convertToPdf(content, fileType);
+                        convertToPdf(fileContent, fileType);
                         break;
                     case 'png':
-                        convertToPng(content, fileType);
+                        convertToPng(fileContent, fileType);
                         break;
                     case 'svg':
-                        convertToSvg(content, fileType);
+                        convertToSvg(fileContent, fileType);
                         break;
                 }
             } catch (error) {
@@ -242,42 +264,45 @@
 
         // PDFに変換
         function convertToPdf(content, fileType) {
-            // html2canvas and jsPDFのシンプルな実装
-            const { jsPDF } = window.jspdf;
-            const pdf = new jsPDF();
+            // html2canvasとjsPDFを動的に読み込む
+            Promise.all([
+                loadScript('https://html2canvas.hertzen.com/dist/html2canvas.min.js'),
+                loadScript('https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js')
+            ]).then(() => {
+                const { jsPDF } = window.jspdf;
+                const pdf = new jsPDF();
 
-            // テキストとして追加（簡易的な実装）
-            pdf.setFontSize(10);
-            const splitText = pdf.splitTextToSize(content, 180);
-            pdf.text(splitText, 10, 10);
+                // テキストとして追加（簡易的な実装）
+                pdf.setFontSize(10);
+                const splitText = pdf.splitTextToSize(content, 180);
+                pdf.text(splitText, 10, 10);
 
-            pdf.save(`converted_${new Date().toISOString().replace(/[:.]/g, '')}.pdf`);
-            showStatus('PDFに変換しました', 'success');
+                pdf.save(`converted_${new Date().toISOString().replace(/[:.]/g, '')}.pdf`);
+                showStatus('PDFに変換しました', 'success');
+            }).catch(error => {
+                showStatus('PDFライブラリの読み込みに失敗しました', 'error');
+            });
         }
 
         // PNGに変換
         function convertToPng(content, fileType) {
-            const blob = new Blob([content], {type: 'image/svg+xml'});
-            const url = URL.createObjectURL(blob);
-            
-            const img = new Image();
-            img.onload = function() {
-                const canvas = document.createElement('canvas');
-                canvas.width = img.width;
-                canvas.height = img.height;
-                const ctx = canvas.getContext('2d');
-                ctx.drawImage(img, 0, 0);
-                
-                // Canvasをダウンロード
-                const link = document.createElement('a');
-                link.download = `converted_${new Date().toISOString().replace(/[:.]/g, '')}.png`;
-                link.href = canvas.toDataURL('image/png');
-                link.click();
-                
-                URL.revokeObjectURL(url);
-                showStatus('PNGに変換しました', 'success');
-            };
-            img.src = url;
+            // html2canvasを動的に読み込む
+            loadScript('https://html2canvas.hertzen.com/dist/html2canvas.min.js')
+            .then(() => {
+                const element = fileType === 'svg' 
+                    ? document.querySelector('svg') 
+                    : document.querySelector('iframe').contentDocument.body;
+
+                html2canvas(element).then(canvas => {
+                    const link = document.createElement('a');
+                    link.download = `converted_${new Date().toISOString().replace(/[:.]/g, '')}.png`;
+                    link.href = canvas.toDataURL('image/png');
+                    link.click();
+                    showStatus('PNGに変換しました', 'success');
+                });
+            }).catch(error => {
+                showStatus('html2canvasの読み込みに失敗しました', 'error');
+            });
         }
 
         // SVGに変換
@@ -293,11 +318,11 @@
 
         // ステータスメッセージ表示
         function showStatus(message, type) {
-            statusDiv.textContent = message;
-            statusDiv.className = `status-${type}`;
+            statusMessage.textContent = message;
+            statusMessage.className = type;
         }
 
-        // CDNからライブラリを動的に読み込む
+        // スクリプトを動的に読み込む関数
         function loadScript(url) {
             return new Promise((resolve, reject) => {
                 const script = document.createElement('script');
@@ -307,14 +332,6 @@
                 document.head.appendChild(script);
             });
         }
-
-        // ページ読み込み時にライブラリを読み込む
-        Promise.all([
-            loadScript('https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js')
-        ]).catch(error => {
-            console.error('ライブラリの読み込みに失敗しました', error);
-            showStatus('必要なライブラリの読み込みに失敗しました', 'error');
-        });
     </script>
 </body>
 </html>
