@@ -1,189 +1,28 @@
-/* ステータスメッセージのスタイル */
-#status-message {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    padding: 12px;
-    border-radius: var(--radius);
-    margin: 15px 0;
-    transition: all 0.3s ease;
+/* カスタムTailwindスタイル */
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* フォントとカラーのカスタマイズ */
+:root {
+    --primary: #3b82f6;
+    --primary-dark: #2563eb;
+    --success: #10b981;
+    --warning: #f59e0b;
+    --error: #ef4444;
+    --gray-light: #f3f4f6;
+    --gray-dark: #4b5563;
 }
 
-#status-message.info {
-    background-color: rgba(99, 102, 241, 0.1);
-    color: var(--primary);
-    border-left: 4px solid var(--primary);
-}
-
-#status-message.success {
-    background-color: rgba(16, 185, 129, 0.1);
-    color: var(--success);
-    border-left: 4px solid var(--success);
-}
-
-#status-message.warning {
-    background-color: rgba(245, 158, 11, 0.1);
-    color: var(--warning);
-    border-left: 4px solid var(--warning);
-}
-
-#status-message.error {
-    background-color: rgba(239, 68, 68, 0.1);
-    color: var(--error);
-    border-left: 4px solid var(--error);
-}
-
-/* プログレスバーのスタイル */
-#progress-container {
-    width: 100%;
-    height: 8px;
-    background-color: var(--gray-light);
-    border-radius: 4px;
-    margin-top: 10px;
-    overflow: hidden;
-}
-
-#progress-bar {
-    width: 0%;
-    height: 100%;
-    background-color: var(--primary);
-    transition: width 0.3s ease;
-}
-
-/* ローディングスピナーのスタイル */
-.loading-spinner {
-    display: inline-block;
-    width: 16px;
-    height: 16px;
-    border: 2px solid rgba(0, 0, 0, 0.1);
-    border-radius: 50%;
-    border-top-color: var(--primary);
-    animation: spin 0.8s linear infinite;
-    margin-right: 8px;
-}
-
-@keyframes spin {
-    to {
-        transform: rotate(360deg);
-    }
-}
-
-/* ファイル選択エリアのスタイル */
-.file-input-container {
-    border: 2px dashed var(--gray-light);
-    padding: 20px;
-    text-align: center;
-    border-radius: var(--radius);
-    margin-bottom: 15px;
-    transition: all 0.3s ease;
+/* ファイル選択エリアのホバーエフェクト */
+.file-input-container input[type="file"] {
+    @apply absolute inset-0 w-full h-full opacity-0 cursor-pointer z-10;
 }
 
 .file-input-container:hover {
-    border-color: var(--primary);
+    @apply border-blue-500 bg-blue-50/10;
 }
 
-/* サイズ選択ボタンのスタイル */
-.size-buttons, .format-buttons {
-    display: flex;
-    gap: 10px;
-    margin: 15px 0;
-    flex-wrap: wrap;
-}
-
+/* サイズ・形式ボタンのカスタムスタイル */
 .size-button, .format-button {
-    padding: 8px 15px;
-    border: 1px solid var(--gray-light);
-    border-radius: var(--radius);
-    background-color: white;
-    cursor: pointer;
-    transition: all 0.2s ease;
-}
-
-.size-button:hover, .format-button:hover {
-    border-color: var(--primary);
-}
-
-.size-button.selected, .format-button.selected {
-    background-color: var(--primary);
-    color: white;
-    border-color: var(--primary);
-}
-
-/* プレビューエリアのスタイル */
-.preview-wrapper {
-    border: 1px solid var(--gray-light);
-    border-radius: var(--radius);
-    padding: 20px;
-    margin: 20px 0;
-    overflow: hidden;
-    background-color: white;
-    box-shadow: 0 4px 6px rgba(0, 0, 0, 0.05);
-}
-
-#html-preview {
-    margin: 0 auto;
-    overflow: hidden;
-    background-color: white;
-    box-shadow: 0 0 10px rgba(0, 0, 0, 0.1);
-}
-
-/* 品質スライダーのスタイル */
-.quality-slider {
-    width: 100%;
-    margin: 10px 0;
-}
-
-/* ページオプションのスタイル */
-.page-options {
-    margin: 15px 0;
-    padding: 15px;
-    border: 1px solid var(--gray-light);
-    border-radius: var(--radius);
-    background-color: rgba(0, 0, 0, 0.02);
-}
-
-.page-option {
-    margin-bottom: 10px;
-}
-
-.page-number-input {
-    width: 60px;
-    padding: 5px;
-    border: 1px solid var(--gray-light);
-    border-radius: 4px;
-}
-
-/* ボタンのスタイル */
-.action-button {
-    padding: 10px 20px;
-    border: none;
-    border-radius: var(--radius);
-    background-color: var(--primary);
-    color: white;
-    cursor: pointer;
-    transition: all 0.2s ease;
-    font-weight: 500;
-}
-
-.action-button:hover {
-    background-color: var(--primary-dark);
-}
-
-.action-button:disabled {
-    background-color: var(--gray-light);
-    cursor: not-allowed;
-}
-
-/* ファイル名表示のスタイル */
-.file-name-display {
-    margin-top: 10px;
-    font-weight: 500;
-    color: var(--primary);
-}
-
-/* サイズ情報表示のスタイル */
-.size-info {
-    margin-top: 5px;
-    font-size: 0.9em;
-    color: var(--gray-dark);
-}
+    @apply flex-1 py-2 px-4 rounded-lg transition-colors duration-
