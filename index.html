@@ -68,14 +68,16 @@
 
         .preview-container {
             margin-top: 20px;
+            max-height: 500px;
+            overflow: auto;
             border: 1px solid #3A3A3A;
             border-radius: 8px;
-            overflow: hidden;
         }
 
         #preview {
             width: 100%;
-            transition: all 0.3s ease;
+            min-height: 300px;
+            background-color: #3A3A3A;
         }
 
         .options-container {
@@ -135,6 +137,18 @@
             0% { transform: rotate(0deg); }
             100% { transform: rotate(360deg); }
         }
+
+        #debug-info {
+            background-color: rgba(0,0,0,0.3);
+            color: #bbb;
+            font-size: 12px;
+            padding: 10px;
+            margin-top: 15px;
+            border-radius: 4px;
+            max-height: 200px;
+            overflow-y: auto;
+            display: none;
+        }
     </style>
 </head>
 <body>
@@ -163,6 +177,7 @@
         </div>
 
         <div id="status"></div>
+        <div id="debug-info"></div>
     </div>
 
     <script src="https://html2canvas.hertzen.com/dist/html2canvas.min.js"></script>
@@ -175,10 +190,19 @@
         const status = document.getElementById('status');
         const loading = document.getElementById('loading');
         const sizeSelect = document.getElementById('size-select');
+        const debugInfo = document.getElementById('debug-info');
 
         // グローバル変数
         let fileContent = null;
         let fileType = null;
+
+        // デバッグ情報を表示
+        function logDebug(message) {
+            const currentTime = new Date().toLocaleTimeString();
+            debugInfo.style.display = 'block';
+            debugInfo.innerHTML += `[${currentTime}] ${message}<br>`;
+            debugInfo.scrollTop = debugInfo.scrollHeight;
+        }
 
         // サイズ選択イベントリスナー
         sizeSelect.addEventListener('change', updatePreviewSize);
@@ -225,45 +249,89 @@
         function handleFile(file) {
             if (!file) return;
 
+            // デバッグ情報をリセット
+            debugInfo.innerHTML = '';
+            debugInfo.style.display = 'none';
+
             const reader = new FileReader();
             reader.onload = function(e) {
                 fileContent = e.target.result;
                 fileType = file.name.split('.').pop().toLowerCase();
 
-                // アニメーション終了後の状態を取得するスクリプト
+                // アニメーション終了を完全に検出するための拡張スクリプト
                 const animationHandlerScript = `
                     <script>
+                        // デバッグ出力用の関数
+                        function sendDebugMessage(message) {
+                            window.parent.postMessage({
+                                type: 'debug',
+                                message: message
+                            }, '*');
+                        }
+
+                        // すべてのCSSアニメーションを検出
+                        function findAllAnimations() {
+                            const elements = document.querySelectorAll('*');
+                            const animations = [];
+
+                            elements.forEach(el => {
+                                const computedStyle = window.getComputedStyle(el);
+                                const animationName = computedStyle.animationName;
+                                const animationDuration = parseFloat(computedStyle.animationDuration) * 1000;
+                                const animationDelay = parseFloat(computedStyle.animationDelay) * 1000;
+
+                                if (animationName !== 'none') {
+                                    animations.push({
+                                        element: el,
+                                        name: animationName,
+                                        duration: animationDuration,
+                                        delay: animationDelay
+                                    });
+                                }
+                            });
+
+                            return animations;
+                        }
+
                         // アニメーション終了を待つ関数
-                        function waitForAnimationEnd() {
+                        function waitForAnimationsToComplete() {
                             return new Promise((resolve) => {
-                                // すべてのCSSアニメーションが終了するまで待つ
-                                const animatedElements = document.querySelectorAll('*');
-                                let pendingAnimations = animatedElements.length;
+                                const animations = findAllAnimations();
+                                sendDebugMessage(\`Found \${animations.length} animations\`);
 
-                                animatedElements.forEach(el => {
-                                    const computedStyle = window.getComputedStyle(el);
-                                    const animationDuration = parseFloat(computedStyle.animationDuration) * 1000;
-                                    const animationDelay = parseFloat(computedStyle.animationDelay) * 1000;
-                                    
-                                    if (animationDuration > 0) {
-                                        setTimeout(() => {
-                                            pendingAnimations--;
-                                            if (pendingAnimations <= 0) resolve();
-                                        }, animationDuration + animationDelay);
-                                    } else {
-                                        pendingAnimations--;
-                                    }
+                                if (animations.length === 0) {
+                                    resolve();
+                                    return;
+                                }
+
+                                const maxDuration = Math.max(...animations.map(
+                                    a => a.duration + a.delay
+                                ));
+
+                                // タイムアウト + 追加バッファ
+                                const timeoutDuration = maxDuration + 500;
+                                sendDebugMessage(\`Maximum animation duration: \${maxDuration}ms, Timeout set to \${timeoutDuration}ms\`);
+
+                                const timeout = setTimeout(() => {
+                                    sendDebugMessage('Animation timeout reached');
+                                    resolve();
+                                }, timeoutDuration);
+
+                                // アニメーション終了後に解決
+                                animations.forEach(anim => {
+                                    anim.element.addEventListener('animationend', () => {
+                                        clearTimeout(timeout);
+                                        resolve();
+                                    }, { once: true });
                                 });
-
-                                // アニメーションがない場合はすぐに解決
-                                if (pendingAnimations <= 0) resolve();
                             });
                         }
 
-                        // ページ読み込み後にアニメーション終了を待つ
+                        // ページ読み込み完了後にアニメーション終了を待つ
                         window.addEventListener('load', () => {
-                            waitForAnimationEnd().then(() => {
-                                // アニメーション終了を通知
+                            sendDebugMessage('Page loaded, waiting for animations');
+                            waitForAnimationsToComplete().then(() => {
+                                sendDebugMessage('All animations completed');
                                 window.parent.postMessage('animationEnded', '*');
                             });
                         });
@@ -271,64 +339,43 @@
                 `;
 
                 // プレビュー表示
-                if (fileType === 'svg') {
-                    // SVGの場合
-                    preview.srcdoc = `
-                        <!DOCTYPE html>
-                        <html>
-                            <head>
-                                <style>
-                                    body { 
-                                        margin: 0; 
-                                        display: flex; 
-                                        justify-content: center; 
-                                        align-items: center; 
-                                        height: 100vh; 
-                                        background-color: #2C2C2C;
-                                    }
-                                    svg { 
-                                        max-width: 100%; 
-                                        max-height: 100%; 
-                                    }
-                                </style>
-                                ${animationHandlerScript}
-                            </head>
-                            <body>${fileContent}</body>
-                        </html>
-                    `;
-                } else {
-                    // HTMLの場合
-                    preview.srcdoc = `
-                        <!DOCTYPE html>
-                        <html>
-                            <head>
-                                <style>
-                                    body { 
-                                        margin: 0; 
-                                        background-color: #2C2C2C; 
-                                        display: flex; 
-                                        justify-content: center; 
-                                        align-items: center; 
-                                        min-height: 100vh;
-                                    }
-                                </style>
-                                ${animationHandlerScript}
-                            </head>
-                            <body>${fileContent}</body>
-                        </html>
-                    `;
-                }
+                const previewContent = `
+                    <!DOCTYPE html>
+                    <html>
+                        <head>
+                            <style>
+                                body { 
+                                    margin: 0; 
+                                    background-color: #2C2C2C; 
+                                    display: flex; 
+                                    justify-content: center; 
+                                    align-items: center; 
+                                    min-height: 100vh;
+                                    overflow: hidden;
+                                }
+                            </style>
+                            ${animationHandlerScript}
+                        </head>
+                        <body>${fileContent}</body>
+                    </html>
+                `;
 
-                // アニメーション終了の監視
-                window.addEventListener('message', function(event) {
+                preview.srcdoc = previewContent;
+
+                // メッセージ受信ハンドラ
+                const messageHandler = (event) => {
                     if (event.data === 'animationEnded') {
-                        // 変換ボタンを有効化
+                        // アニメーション終了を検出
                         convertBtn.disabled = false;
-
-                        // ステータス表示
                         showStatus('アニメーション終了。変換可能です。', 'success');
+                        window.removeEventListener('message', messageHandler);
+                    } else if (event.data && event.data.type === 'debug') {
+                        // デバッグメッセージを表示
+                        logDebug(event.data.message);
                     }
-                });
+                };
+
+                window.addEventListener('message', messageHandler);
 
                 // サイズ更新
                 updatePreviewSize();
@@ -348,6 +395,7 @@
             // ローディング表示
             loading.style.display = 'flex';
             status.textContent = '';
+            debugInfo.style.display = 'none';
 
             // 選択されたサイズを取得
             const [width, height] = sizeSelect.value.split('x').map(Number);
@@ -384,13 +432,14 @@
                 console.error('変換エラー:', error);
                 showStatus('変換中にエラーが発生しました', 'error');
             });
-        }
-
-        // ステータス表示関数
+            // ステータス表示関数
         function showStatus(message, type) {
             status.textContent = message;
             status.className = `status-${type}`;
         }
+
+        // サイズ選択の初期設定
+        updatePreviewSize();
     </script>
 </body>
 </html>
