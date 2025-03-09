@@ -5,8 +5,11 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>HTML/SVG コンバーター</title>
     
-    <!-- CSSの読み込み -->
-    <link rel="stylesheet" href="style.css">
+    <!-- Google Fonts -->
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600&display=swap" rel="stylesheet">
+    
+    <!-- Tailwind CDN for utility classes -->
+    <script src="https://cdn.tailwindcss.com"></script>
     
     <!-- CDNからライブラリを読み込み -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
@@ -15,71 +18,93 @@
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/FileSaver.js/2.0.5/FileSaver.min.js"></script>
 </head>
-<body>
-    <div class="container">
-        <h1>HTML/SVG コンバーター</h1>
-        
-        <!-- ファイル選択 -->
-        <div class="file-input-container">
-            <input type="file" id="html-file" accept=".html,.htm,.svg">
-            <p>HTMLまたはSVGファイルをドラッグ＆ドロップするか、クリックして選択</p>
-            <div id="file-name" class="file-name-display"></div>
-        </div>
-        
-        <!-- サイズ選択 -->
-        <div class="option-group">
-            <h3>出力サイズ</h3>
-            <div class="size-buttons">
-                <button id="size-a4" class="size-button" data-size="a4">A4</button>
-                <button id="size-letter" class="size-button" data-size="letter">レター</button>
-                <button id="size-custom" class="size-button" data-size="custom">カスタム</button>
+<body class="bg-gray-50 font-sans antialiased">
+    <div class="container mx-auto max-w-2xl px-4 py-8">
+        <div class="bg-white shadow-xl rounded-lg p-6">
+            <h1 class="text-3xl font-bold text-center text-gray-800 mb-6">HTML/SVG コンバーター</h1>
+            
+            <!-- ファイル選択 -->
+            <div class="border-2 border-dashed border-gray-300 rounded-lg p-6 text-center hover:border-blue-500 transition-colors group mb-6">
+                <input type="file" id="html-file" accept=".html,.htm,.svg" class="hidden" />
+                <label for="html-file" class="cursor-pointer">
+                    <svg xmlns="http://www.w3.org/2000/svg" class="h-12 w-12 mx-auto mb-4 text-gray-400 group-hover:text-blue-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                    </svg>
+                    <p class="text-gray-600 group-hover:text-blue-600">HTMLまたはSVGファイルをドラッグ＆ドロップするか、クリックして選択</p>
+                </label>
+                <div id="file-name" class="mt-2 text-sm text-blue-600 font-medium"></div>
             </div>
-        </div>
-        
-        <!-- 形式選択 -->
-        <div class="option-group">
-            <h3>出力形式</h3>
-            <div class="format-buttons">
-                <button id="format-pdf" class="format-button" data-format="pdf">PDF</button>
-                <button id="format-jpg" class="format-button" data-format="jpg">JPG</button>
-                <button id="format-svg" class="format-button" data-format="svg">SVG</button>
+            
+            <!-- オプションセクション -->
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
+                <!-- サイズ選択 -->
+                <div>
+                    <h3 class="text-lg font-semibold text-gray-700 mb-3">出力サイズ</h3>
+                    <div class="grid grid-cols-3 gap-2">
+                        <button id="size-a4" class="size-button" data-size="a4">A4</button>
+                        <button id="size-letter" class="size-button" data-size="letter">レター</button>
+                        <button id="size-custom" class="size-button" data-size="custom">カスタム</button>
+                    </div>
+                </div>
+                
+                <!-- 形式選択 -->
+                <div>
+                    <h3 class="text-lg font-semibold text-gray-700 mb-3">出力形式</h3>
+                    <div class="grid grid-cols-3 gap-2">
+                        <button id="format-pdf" class="format-button" data-format="pdf">PDF</button>
+                        <button id="format-jpg" class="format-button" data-format="jpg">JPG</button>
+                        <button id="format-svg" class="format-button" data-format="svg">SVG</button>
+                    </div>
+                </div>
             </div>
-        </div>
-        
-        <!-- 品質設定 -->
-        <div id="quality-options" class="option-group" style="display: none;">
-            <h3>JPG品質</h3>
-            <label for="quality-slider">画質: <span id="quality-value">80%</span></label>
-            <input type="range" id="quality-slider" class="quality-slider" min="10" max="100" value="80">
-        </div>
-        
-        <!-- ページオプション -->
-        <div id="page-options" class="page-options" style="display: none;">
-            <h3>ページオプション <span id="page-info"></span></h3>
-            <div class="page-option">
-                <input type="radio" id="all-pages" name="page-selection" value="all" checked>
-                <label for="all-pages">すべてのページを変換</label>
+            
+            <!-- 品質設定 -->
+            <div id="quality-options" class="mb-6" style="display: none;">
+                <h3 class="text-lg font-semibold text-gray-700 mb-3">JPG品質</h3>
+                <div class="flex items-center space-x-4">
+                    <input type="range" id="quality-slider" class="flex-grow" min="10" max="100" value="80">
+                    <span id="quality-value" class="w-12 text-right text-gray-600">80%</span>
+                </div>
             </div>
-            <div class="page-option">
-                <input type="radio" id="single-page" name="page-selection" value="single">
-                <label for="single-page">選択したページのみ: </label>
-                <input type="number" id="page-number" class="page-number-input" min="1" value="1">
+            
+            <!-- ページオプション -->
+            <div id="page-options" class="bg-gray-100 rounded-lg p-4 mb-6" style="display: none;">
+                <h3 class="text-lg font-semibold text-gray-700 mb-3">
+                    ページオプション <span id="page-info" class="text-sm text-gray-500"></span>
+                </h3>
+                <div class="space-y-2">
+                    <div class="flex items-center">
+                        <input type="radio" id="all-pages" name="page-selection" value="all" class="mr-2" checked>
+                        <label for="all-pages">すべてのページを変換</label>
+                    </div>
+                    <div class="flex items-center">
+                        <input type="radio" id="single-page" name="page-selection" value="single" class="mr-2">
+                        <label for="single-page" class="flex items-center">
+                            選択したページのみ: 
+                            <input type="number" id="page-number" class="ml-2 w-16 px-2 py-1 border rounded" min="1" value="1">
+                        </label>
+                    </div>
+                </div>
             </div>
-        </div>
-        
-        <!-- アクションボタン -->
-        <div class="button-group">
-            <button id="preview-btn" class="action-button" disabled>プレビュー</button>
-            <button id="convert-btn" class="action-button" disabled>変換</button>
-        </div>
-        
-        <!-- ステータスメッセージ -->
-        <div id="status-message" class="hidden"></div>
-        
-        <!-- プレビュー -->
-        <div class="preview-wrapper">
-            <div id="size-info" class="size-info"></div>
-            <div id="html-preview"></div>
+            
+            <!-- アクションボタン -->
+            <div class="flex space-x-4">
+                <button id="preview-btn" class="flex-1 bg-blue-500 text-white py-3 rounded-lg hover:bg-blue-600 transition-colors disabled:bg-gray-300" disabled>
+                    プレビュー
+                </button>
+                <button id="convert-btn" class="flex-1 bg-green-500 text-white py-3 rounded-lg hover:bg-green-600 transition-colors disabled:bg-gray-300" disabled>
+                    変換
+                </button>
+            </div>
+            
+            <!-- ステータスメッセージ -->
+            <div id="status-message" class="mt-4 p-3 rounded-lg text-center"></div>
+            
+            <!-- プレビュー -->
+            <div class="mt-6 bg-gray-100 rounded-lg p-4">
+                <div id="size-info" class="text-sm text-gray-600 mb-2"></div>
+                <div id="html-preview" class="max-w-full overflow-auto"></div>
+            </div>
         </div>
     </div>
     
