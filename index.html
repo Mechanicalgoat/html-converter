@@ -68,16 +68,14 @@
 
         .preview-container {
             margin-top: 20px;
-            max-height: 500px;
-            overflow: auto;
             border: 1px solid #3A3A3A;
             border-radius: 8px;
+            overflow: hidden;
         }
 
         #preview {
             width: 100%;
-            min-height: 300px;
-            background-color: #3A3A3A;
+            transition: all 0.3s ease;
         }
 
         .options-container {
@@ -182,6 +180,14 @@
         let fileContent = null;
         let fileType = null;
 
+        // サイズ選択イベントリスナー
+        sizeSelect.addEventListener('change', updatePreviewSize);
+
+        function updatePreviewSize() {
+            const [width, height] = sizeSelect.value.split('x').map(Number);
+            preview.style.height = `${height / width * preview.clientWidth}px`;
+        }
+
         // ドラッグ&ドロップイベントの設定
         ['dragenter', 'dragover', 'dragleave', 'drop'].forEach(eventName => {
             fileDropZone.addEventListener(eventName, preventDefaults, false);
@@ -224,32 +230,43 @@
                 fileContent = e.target.result;
                 fileType = file.name.split('.').pop().toLowerCase();
 
-                // プレビュー表示用の拡張スクリプト
-                const previewScript = `
+                // アニメーション終了後の状態を取得するスクリプト
+                const animationHandlerScript = `
                     <script>
-                        // アニメーションを一時停止する関数
-                        function freezeAnimations() {
-                            document.querySelectorAll('*').forEach(el => {
-                                // CSSアニメーションを停止
-                                el.style.animationPlayState = 'paused';
-                                
-                                // 動画や音声を一時停止
-                                if (el.pause) el.pause();
-                                
-                                // GIFの再生を停止
-                                if (el.complete && el.naturalWidth !== 0) {
-                                    const canvas = document.createElement('canvas');
-                                    const ctx = canvas.getContext('2d');
-                                    canvas.width = el.width;
-                                    canvas.height = el.height;
-                                    ctx.drawImage(el, 0, 0, el.width, el.height);
-                                    el.src = canvas.toDataURL();
-                                }
+                        // アニメーション終了を待つ関数
+                        function waitForAnimationEnd() {
+                            return new Promise((resolve) => {
+                                // すべてのCSSアニメーションが終了するまで待つ
+                                const animatedElements = document.querySelectorAll('*');
+                                let pendingAnimations = animatedElements.length;
+
+                                animatedElements.forEach(el => {
+                                    const computedStyle = window.getComputedStyle(el);
+                                    const animationDuration = parseFloat(computedStyle.animationDuration) * 1000;
+                                    const animationDelay = parseFloat(computedStyle.animationDelay) * 1000;
+                                    
+                                    if (animationDuration > 0) {
+                                        setTimeout(() => {
+                                            pendingAnimations--;
+                                            if (pendingAnimations <= 0) resolve();
+                                        }, animationDuration + animationDelay);
+                                    } else {
+                                        pendingAnimations--;
+                                    }
+                                });
+
+                                // アニメーションがない場合はすぐに解決
+                                if (pendingAnimations <= 0) resolve();
                             });
                         }
-                        
-                        // ページ読み込み後にアニメーションを停止
-                        window.addEventListener('load', freezeAnimations);
+
+                        // ページ読み込み後にアニメーション終了を待つ
+                        window.addEventListener('load', () => {
+                            waitForAnimationEnd().then(() => {
+                                // アニメーション終了を通知
+                                window.parent.postMessage('animationEnded', '*');
+                            });
+                        });
                     <\/script>
                 `;
 
@@ -274,7 +291,7 @@
                                         max-height: 100%; 
                                     }
                                 </style>
-                                ${previewScript}
+                                ${animationHandlerScript}
                             </head>
                             <body>${fileContent}</body>
                         </html>
@@ -295,18 +312,26 @@
                                         min-height: 100vh;
                                     }
                                 </style>
-                                ${previewScript}
+                                ${animationHandlerScript}
                             </head>
                             <body>${fileContent}</body>
                         </html>
                     `;
                 }
 
-                // 変換ボタンを有効化
-                convertBtn.disabled = false;
+                // アニメーション終了の監視
+                window.addEventListener('message', function(event) {
+                    if (event.data === 'animationEnded') {
+                        // 変換ボタンを有効化
+                        convertBtn.disabled = false;
 
-                // ステータス表示
-                showStatus('ファイルが正常に読み込まれました', 'success');
+                        // ステータス表示
+                        showStatus('アニメーション終了。変換可能です。', 'success');
+                    }
+                });
+
+                // サイズ更新
+                updatePreviewSize();
             };
 
             reader.onerror = function() {
