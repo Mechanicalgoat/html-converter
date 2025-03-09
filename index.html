@@ -4,203 +4,317 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>HTML/SVG コンバーター</title>
-    
-    <!-- CSSの読み込み -->
     <style>
-        /* Tailwind CSSの基本スタイル */
-        @tailwind base;
-        @tailwind components;
-        @tailwind utilities;
-
-        /* カスタムスタイル */
+        /* ベーススタイル */
         body {
-            font-family: 'Inter', sans-serif;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, 'Open Sans', 'Helvetica Neue', sans-serif;
+            line-height: 1.6;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+            background-color: #f4f4f4;
+        }
+
+        .container {
+            background-color: white;
+            border-radius: 8px;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+            padding: 30px;
+        }
+
+        .file-drop-zone {
+            border: 2px dashed #ccc;
+            border-radius: 8px;
+            padding: 30px;
+            text-align: center;
+            transition: background-color 0.3s;
+        }
+
+        .file-drop-zone.drag-over {
+            background-color: #f0f0f0;
+            border-color: #007bff;
+        }
+
+        .btn {
+            display: inline-block;
+            padding: 10px 20px;
+            margin: 10px 0;
+            background-color: #007bff;
+            color: white;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            transition: background-color 0.3s;
+        }
+
+        .btn:hover {
+            background-color: #0056b3;
+        }
+
+        .btn:disabled {
+            background-color: #cccccc;
+            cursor: not-allowed;
+        }
+
+        #preview {
+            max-width: 100%;
+            max-height: 500px;
+            overflow: auto;
+            margin-top: 20px;
+            border: 1px solid #ddd;
+        }
+
+        #status {
+            margin-top: 15px;
+            padding: 10px;
+            border-radius: 5px;
+        }
+
+        .status-success {
+            background-color: #dff0d8;
+            color: #3c763d;
+        }
+
+        .status-error {
+            background-color: #f2dede;
+            color: #a94442;
         }
     </style>
-    
-    <!-- Tailwind CDN -->
-    <script src="https://cdn.tailwindcss.com"></script>
-    
-    <!-- CDNからライブラリを読み込み -->
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/dom-to-image/2.6.0/dom-to-image.min.js"></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/FileSaver.js/2.0.5/FileSaver.min.js"></script>
 </head>
-<body class="bg-gray-50 min-h-screen flex items-center justify-center p-4">
-    <div class="w-full max-w-2xl bg-white shadow-xl rounded-lg p-8">
-        <h1 class="text-3xl font-bold text-center text-gray-800 mb-6">HTML/SVG コンバーター</h1>
+<body>
+    <div class="container">
+        <h1>HTML/SVG コンバーター</h1>
         
-        <!-- ファイル選択 -->
-        <div class="border-2 border-dashed border-gray-300 rounded-lg p-6 text-center mb-6 hover:border-blue-500 transition-colors group">
-            <input type="file" id="html-file" accept=".html,.htm,.svg" class="hidden" />
-            <label for="html-file" class="cursor-pointer flex flex-col items-center">
-                <svg xmlns="http://www.w3.org/2000/svg" class="h-12 w-12 text-gray-400 group-hover:text-blue-500 mb-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
-                </svg>
-                <p class="text-gray-600 group-hover:text-blue-600">HTMLまたはSVGファイルをドラッグ＆ドロップするか、クリックして選択</p>
-            </label>
-            <div id="file-name" class="mt-2 text-sm text-blue-600 font-medium"></div>
+        <div id="file-drop-zone" class="file-drop-zone">
+            <input type="file" id="file-input" accept=".html,.htm,.svg" style="display:none;">
+            <label for="file-input" class="btn">ファイルを選択</label>
+            <p>またはここにファイルをドラッグ&ドロップ</p>
         </div>
-        
-        <!-- 変換オプション -->
-        <div class="grid grid-cols-2 gap-6 mb-6">
-            <!-- サイズ選択 -->
-            <div>
-                <h3 class="text-lg font-semibold text-gray-700 mb-3">出力サイズ</h3>
-                <div class="grid grid-cols-3 gap-2">
-                    <button id="size-a4" class="size-button" data-size="a4">A4</button>
-                    <button id="size-letter" class="size-button" data-size="letter">レター</button>
-                    <button id="size-custom" class="size-button" data-size="custom">カスタム</button>
-                </div>
-            </div>
-            
-            <!-- 形式選択 -->
-            <div>
-                <h3 class="text-lg font-semibold text-gray-700 mb-3">出力形式</h3>
-                <div class="grid grid-cols-3 gap-2">
-                    <button id="format-pdf" class="format-button" data-format="pdf">PDF</button>
-                    <button id="format-jpg" class="format-button" data-format="jpg">JPG</button>
-                    <button id="format-svg" class="format-button" data-format="svg">SVG</button>
-                </div>
-            </div>
+
+        <div id="options" style="display:none; margin-top: 20px;">
+            <h3>変換オプション</h3>
+            <select id="format-select">
+                <option value="pdf">PDF</option>
+                <option value="png">PNG</option>
+                <option value="svg">SVG</option>
+            </select>
         </div>
-        
-        <!-- 品質設定 -->
-        <div id="quality-options" class="mb-6" style="display: none;">
-            <h3 class="text-lg font-semibold text-gray-700 mb-3">JPG品質</h3>
-            <div class="flex items-center space-x-4">
-                <input type="range" id="quality-slider" class="flex-grow" min="10" max="100" value="80">
-                <span id="quality-value" class="w-12 text-right text-gray-600">80%</span>
-            </div>
+
+        <div id="preview-section" style="display:none; margin-top: 20px;">
+            <h3>プレビュー</h3>
+            <div id="preview"></div>
         </div>
-        
-        <!-- ページオプション -->
-        <div id="page-options" class="bg-gray-100 rounded-lg p-4 mb-6" style="display: none;">
-            <h3 class="text-lg font-semibold text-gray-700 mb-3">
-                ページオプション <span id="page-info" class="text-sm text-gray-500"></span>
-            </h3>
-            <div class="space-y-2">
-                <div class="flex items-center">
-                    <input type="radio" id="all-pages" name="page-selection" value="all" class="mr-2" checked>
-                    <label for="all-pages">すべてのページを変換</label>
-                </div>
-                <div class="flex items-center">
-                    <input type="radio" id="single-page" name="page-selection" value="single" class="mr-2">
-                    <label for="single-page" class="flex items-center">
-                        選択したページのみ: 
-                        <input type="number" id="page-number" class="ml-2 w-16 px-2 py-1 border rounded" min="1" value="1">
-                    </label>
-                </div>
-            </div>
-        </div>
-        
-        <!-- 変換ボタン -->
-        <div class="flex space-x-4">
-            <button id="preview-btn" class="flex-1 bg-blue-500 text-white py-3 rounded-lg hover:bg-blue-600 transition-colors disabled:bg-gray-300" disabled>
-                プレビュー
-            </button>
-            <button id="convert-btn" class="flex-1 bg-green-500 text-white py-3 rounded-lg hover:bg-green-600 transition-colors disabled:bg-gray-300" disabled>
-                変換
-            </button>
-        </div>
-        
-        <!-- ステータスメッセージ -->
-        <div id="status-message" class="mt-4 p-3 rounded-lg text-center"></div>
-        
-        <!-- 推定変換時間 -->
-        <div id="estimated-time" class="mt-2 text-sm text-gray-600 text-center"></div>
-        
-        <!-- プレビュー -->
-        <div class="mt-6 bg-gray-100 rounded-lg p-4">
-            <div id="size-info" class="text-sm text-gray-600 mb-2"></div>
-            <div id="html-preview" class="max-w-full overflow-auto"></div>
-        </div>
+
+        <button id="convert-btn" class="btn" style="display:none;">変換</button>
+
+        <div id="status"></div>
     </div>
 
-    <!-- スクリプト -->
     <script>
-        // 変換時間の推定関数を追加
-        function estimateConversionTime(totalPages, format) {
-            // ページ数と形式に基づいて変換時間を推定
-            const baseTime = 1; // 初期処理の基本時間
-            let timePerPage = 0;
+        // デバッグ用のグローバル変数
+        window.converterDebug = {
+            fileContent: null,
+            fileType: null
+        };
 
-            switch(format) {
-                case 'pdf':
-                    timePerPage = 0.5; // PDFは比較的軽い
-                    break;
-                case 'jpg':
-                    timePerPage = 1; // JPGは少し重い
-                    break;
-                case 'svg':
-                    timePerPage = 0.3; // SVGは最も軽い
-                    break;
-                default:
-                    timePerPage = 0.5;
+        // DOMエレメントの取得
+        const fileDropZone = document.getElementById('file-drop-zone');
+        const fileInput = document.getElementById('file-input');
+        const previewSection = document.getElementById('preview-section');
+        const preview = document.getElementById('preview');
+        const optionsSection = document.getElementById('options');
+        const formatSelect = document.getElementById('format-select');
+        const convertBtn = document.getElementById('convert-btn');
+        const statusDiv = document.getElementById('status');
+
+        // ドラッグ&ドロップイベントの設定
+        ['dragenter', 'dragover', 'dragleave', 'drop'].forEach(eventName => {
+            fileDropZone.addEventListener(eventName, preventDefaults, false);
+        });
+
+        function preventDefaults(e) {
+            e.preventDefault();
+            e.stopPropagation();
+        }
+
+        fileDropZone.addEventListener('dragenter', highlight, false);
+        fileDropZone.addEventListener('dragover', highlight, false);
+        fileDropZone.addEventListener('dragleave', unhighlight, false);
+        fileDropZone.addEventListener('drop', handleDrop, false);
+
+        function highlight() {
+            fileDropZone.classList.add('drag-over');
+        }
+
+        function unhighlight() {
+            fileDropZone.classList.remove('drag-over');
+        }
+
+        // ファイル入力イベント
+        fileInput.addEventListener('change', handleFiles, false);
+
+        function handleDrop(e) {
+            const dt = e.dataTransfer;
+            const files = dt.files;
+            handleFileSelect(files[0]);
+        }
+
+        function handleFiles() {
+            handleFileSelect(this.files[0]);
+        }
+
+        function handleFileSelect(file) {
+            if (!file) return;
+
+            // ファイルタイプの確認
+            const fileExt = file.name.split('.').pop().toLowerCase();
+            if (!['html', 'htm', 'svg'].includes(fileExt)) {
+                showStatus('サポートされていないファイル形式です', 'error');
+                return;
             }
 
-            // 処理時間を計算
-            const totalTime = baseTime + (totalPages * timePerPage);
-            
-            // 時間を整形
-            if (totalTime < 1) {
-                return '1秒未満';
-            } else if (totalTime < 60) {
-                return `約${Math.round(totalTime)}秒`;
-            } else {
-                const minutes = Math.floor(totalTime / 60);
-                const seconds = Math.round(totalTime % 60);
-                return `約${minutes}分${seconds}秒`;
+            const reader = new FileReader();
+            reader.onload = function(e) {
+                // ファイルの内容を保存
+                window.converterDebug.fileContent = e.target.result;
+                window.converterDebug.fileType = fileExt;
+
+                // プレビューを表示
+                if (fileExt === 'svg') {
+                    preview.innerHTML = e.target.result;
+                } else {
+                    const iframe = document.createElement('iframe');
+                    iframe.style.width = '100%';
+                    iframe.style.height = '500px';
+                    preview.innerHTML = '';
+                    preview.appendChild(iframe);
+                    
+                    const iframeDoc = iframe.contentDocument || iframe.contentWindow.document;
+                    iframeDoc.open();
+                    iframeDoc.write(e.target.result);
+                    iframeDoc.close();
+                }
+
+                // UIを更新
+                previewSection.style.display = 'block';
+                optionsSection.style.display = 'block';
+                convertBtn.style.display = 'block';
+                showStatus('ファイルが正常に読み込まれました', 'success');
+            };
+
+            reader.onerror = function() {
+                showStatus('ファイルの読み込みに失敗しました', 'error');
+            };
+
+            reader.readAsText(file);
+        }
+
+        // 変換ボタンのイベント
+        convertBtn.addEventListener('click', convertFile);
+
+        function convertFile() {
+            const content = window.converterDebug.fileContent;
+            const fileType = window.converterDebug.fileType;
+            const format = formatSelect.value;
+
+            if (!content) {
+                showStatus('ファイルが選択されていません', 'error');
+                return;
+            }
+
+            try {
+                switch(format) {
+                    case 'pdf':
+                        convertToPdf(content, fileType);
+                        break;
+                    case 'png':
+                        convertToPng(content, fileType);
+                        break;
+                    case 'svg':
+                        convertToSvg(content, fileType);
+                        break;
+                }
+            } catch (error) {
+                showStatus(`変換中にエラーが発生しました: ${error.message}`, 'error');
+                console.error(error);
             }
         }
 
-        // 既存のcheckMultiplePagesに推定時間表示を追加
-        function checkMultiplePages(content) {
-            // 既存のcheckMultiplePagesの処理を保持
-            // ... (以前のコード)
+        // PDFに変換
+        function convertToPdf(content, fileType) {
+            // html2canvas and jsPDFのシンプルな実装
+            const { jsPDF } = window.jspdf;
+            const pdf = new jsPDF();
 
-            // 推定変換時間の表示
-            const estimatedTimeEl = document.getElementById('estimated-time');
-            const format = selectedFormat || 'pdf';
-            const estimatedTime = estimateConversionTime(pageCount, format);
-            
-            if (hasMultiplePages) {
-                estimatedTimeEl.textContent = `推定変換時間: ${estimatedTime}`;
-            } else {
-                estimatedTimeEl.textContent = '';
-            }
+            // テキストとして追加（簡易的な実装）
+            pdf.setFontSize(10);
+            const splitText = pdf.splitTextToSize(content, 180);
+            pdf.text(splitText, 10, 10);
+
+            pdf.save(`converted_${new Date().toISOString().replace(/[:.]/g, '')}.pdf`);
+            showStatus('PDFに変換しました', 'success');
         }
 
-        // ファイル選択イベントにドラッグ＆ドロップを追加
-        const fileInput = document.getElementById('html-file');
-        const fileDropZone = fileInput.closest('.border-2');
-
-        // ドラッグオーバー
-        fileDropZone.addEventListener('dragover', (e) => {
-            e.preventDefault();
-            fileDropZone.classList.add('border-blue-500', 'bg-blue-50/10');
-        });
-
-        // ドラッグリーブ
-        fileDropZone.addEventListener('dragleave', () => {
-            fileDropZone.classList.remove('border-blue-500', 'bg-blue-50/10');
-        });
-
-        // ドロップ
-        fileDropZone.addEventListener('drop', (e) => {
-            e.preventDefault();
-            fileDropZone.classList.remove('border-blue-500', 'bg-blue-50/10');
+        // PNGに変換
+        function convertToPng(content, fileType) {
+            const blob = new Blob([content], {type: 'image/svg+xml'});
+            const url = URL.createObjectURL(blob);
             
-            // ファイルを設定
-            fileInput.files = e.dataTransfer.files;
+            const img = new Image();
+            img.onload = function() {
+                const canvas = document.createElement('canvas');
+                canvas.width = img.width;
+                canvas.height = img.height;
+                const ctx = canvas.getContext('2d');
+                ctx.drawImage(img, 0, 0);
+                
+                // Canvasをダウンロード
+                const link = document.createElement('a');
+                link.download = `converted_${new Date().toISOString().replace(/[:.]/g, '')}.png`;
+                link.href = canvas.toDataURL('image/png');
+                link.click();
+                
+                URL.revokeObjectURL(url);
+                showStatus('PNGに変換しました', 'success');
+            };
+            img.src = url;
+        }
+
+        // SVGに変換
+        function convertToSvg(content, fileType) {
+            const blob = new Blob([content], {type: 'image/svg+xml'});
+            const link = document.createElement('a');
+            link.download = `converted_${new Date().toISOString().replace(/[:.]/g, '')}.svg`;
+            link.href = URL.createObjectURL(blob);
+            link.click();
             
-            // change イベントを発火
-            const event = new Event('change');
-            fileInput.dispatchEvent(event);
+            showStatus('SVGとして保存しました', 'success');
+        }
+
+        // ステータスメッセージ表示
+        function showStatus(message, type) {
+            statusDiv.textContent = message;
+            statusDiv.className = `status-${type}`;
+        }
+
+        // CDNからライブラリを動的に読み込む
+        function loadScript(url) {
+            return new Promise((resolve, reject) => {
+                const script = document.createElement('script');
+                script.src = url;
+                script.onload = resolve;
+                script.onerror = reject;
+                document.head.appendChild(script);
+            });
+        }
+
+        // ページ読み込み時にライブラリを読み込む
+        Promise.all([
+            loadScript('https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js')
+        ]).catch(error => {
+            console.error('ライブラリの読み込みに失敗しました', error);
+            showStatus('必要なライブラリの読み込みに失敗しました', 'error');
         });
     </script>
-    <script src="script.js"></script>
 </body>
 </html>
