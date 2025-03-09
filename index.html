@@ -405,10 +405,17 @@
                     <span id="quality-value">95%</span>
                 </div>
                 
+                <div class="checkbox-option" style="margin-top: 10px; margin-bottom: 15px;">
+                    <input type="checkbox" id="maintain-size" onchange="toggleSizeMaintenance()" checked>
+                    <label for="maintain-size">元のファイルサイズを維持</label>
+                    <span class="tooltip">?<span class="tooltip-text">オンにすると変換後も元のファイルサイズを維持します。オフにするとブラウザの表示サイズに合わせて調整されます。</span></span>
+                </div>
+                
                 <button id="preview-btn" disabled onclick="renderPreview()">プレビュー表示</button>
                 <div class="preview-wrapper">
                     <div id="html-preview"></div>
                 </div>
+                <div id="size-info" style="color: #666; margin-top: 5px; font-style: italic; text-align: center;"></div>
             </div>
         </div>
         
@@ -449,6 +456,11 @@
         window.optimizeForPrint = false;
         // アップロードされた画像を保存するオブジェクト
         window.uploadedImages = {};
+        // 元のファイルサイズを保持
+        window.originalWidth = null;
+        window.originalHeight = null;
+        // サイズ維持フラグ - デフォルトでサイズを維持
+        window.maintainOriginalSize = true;
         
         // フォーマット選択
         function selectFormat(format) {
@@ -465,6 +477,15 @@
         // 印刷最適化オプションの切り替え
         function togglePrintOptimization() {
             window.optimizeForPrint = document.getElementById('optimize-for-print').checked;
+        }
+        
+        // サイズ維持オプションの切り替え
+        function toggleSizeMaintenance() {
+            window.maintainOriginalSize = document.getElementById('maintain-size').checked;
+            // プレビューが既に表示されている場合は再描画
+            if (!document.getElementById('preview-btn').disabled) {
+                renderPreview();
+            }
         }
         
         // 画像をプリロードする関数
@@ -675,6 +696,13 @@
             const previewBtn = document.getElementById('preview-btn');
             const statusMessage = document.getElementById('status-message');
             
+            // サイズ情報表示をリセット
+            document.getElementById('size-info').textContent = '';
+            
+            // 元のサイズ情報をリセット
+            window.originalWidth = null;
+            window.originalHeight = null;
+            
             if (fileInput.files.length > 0) {
                 const file = fileInput.files[0];
                 fileNameDisplay.textContent = file.name;
@@ -692,6 +720,51 @@
                     const reader = new FileReader();
                     reader.onload = function(e) {
                         htmlContent = e.target.result;
+                        
+                        // SVGのサイズを取得して保存
+                        const tempDiv = document.createElement('div');
+                        tempDiv.innerHTML = e.target.result;
+                        const svgElement = tempDiv.querySelector('svg');
+                        
+                        if (svgElement) {
+                            // SVGの元の寸法を取得
+                            let width = svgElement.getAttribute('width');
+                            let height = svgElement.getAttribute('height');
+                            let viewBox = svgElement.getAttribute('viewBox');
+                            
+                            // 単位を除去して数値に変換
+                            if (width) {
+                                if (typeof width === 'string' && width.endsWith('px')) {
+                                    width = parseFloat(width);
+                                } else if (typeof width === 'string') {
+                                    width = parseFloat(width);
+                                }
+                                window.originalWidth = width || 800;
+                            }
+                            
+                            if (height) {
+                                if (typeof height === 'string' && height.endsWith('px')) {
+                                    height = parseFloat(height);
+                                } else if (typeof height === 'string') {
+                                    height = parseFloat(height);
+                                }
+                                window.originalHeight = height || 600;
+                            }
+                            
+                            // viewBoxからサイズを取得（width/heightが無い場合）
+                            if (viewBox && (!width || !height)) {
+                                const viewBoxValues = viewBox.split(/[\s,]+/);
+                                if (viewBoxValues.length >= 4) {
+                                    if (!window.originalWidth) {
+                                        window.originalWidth = parseFloat(viewBoxValues[2]);
+                                    }
+                                    if (!window.originalHeight) {
+                                        window.originalHeight = parseFloat(viewBoxValues[3]);
+                                    }
+                                }
+                            }
+                        }
+                        
                         previewBtn.disabled = false;
                         // SVG形式を選択
                         selectFormat('svg');
@@ -858,6 +931,7 @@
             const convertBtn = document.getElementById('convert-btn');
             const fileInput = document.getElementById('html-file');
             const statusMessage = document.getElementById('status-message');
+            const sizeInfo = document.getElementById('size-info');
             
             // ステータスメッセージを表示
             statusMessage.textContent = 'プレビューを生成中...';
@@ -880,35 +954,70 @@
                 // SVG要素を取得してスタイル適用
                 const svgElement = htmlPreview.querySelector('svg');
                 if (svgElement) {
-                    // SVGの元の寸法を取得
-                    let width = svgElement.getAttribute('width') || 800;
-                    let height = svgElement.getAttribute('height') || 600;
-                    let viewBox = svgElement.getAttribute('viewBox');
+                    // 保存済みのオリジナルサイズまたはSVGから取得
+                    let width = window.originalWidth;
+                    let height = window.originalHeight;
                     
-                    // 数値に変換
-                    if (typeof width === 'string' && width.endsWith('px')) {
-                        width = parseFloat(width);
-                    }
-                    if (typeof height === 'string' && height.endsWith('px')) {
-                        height = parseFloat(height);
+                    if (!width || !height) {
+                        // 未設定の場合はSVG要素から取得
+                        width = svgElement.getAttribute('width') || 800;
+                        height = svgElement.getAttribute('height') || 600;
+                        let viewBox = svgElement.getAttribute('viewBox');
+                        
+                        // 数値に変換
+                        if (typeof width === 'string' && width.endsWith('px')) {
+                            width = parseFloat(width);
+                        }
+                        if (typeof height === 'string' && height.endsWith('px')) {
+                            height = parseFloat(height);
+                        }
+                        
+                        // viewBoxからサイズを取得（SVGの標準的な方法）
+                        if (viewBox) {
+                            const viewBoxValues = viewBox.split(/[\s,]+/);
+                            if (viewBoxValues.length >= 4) {
+                                if (!width || width === '100%') {
+                                    width = parseFloat(viewBoxValues[2]);
+                                }
+                                if (!height || height === '100%') {
+                                    height = parseFloat(viewBoxValues[3]);
+                                }
+                            }
+                        }
+                        
+                        // サイズを保存
+                        window.originalWidth = width;
+                        window.originalHeight = height;
                     }
                     
-                    // viewBoxからサイズを取得（SVGの標準的な方法）
-                    if (viewBox) {
-                        const viewBoxValues = viewBox.split(' ');
-                        if (viewBoxValues.length >= 4) {
-                            if (!width || width === '100%') {
-                                width = parseFloat(viewBoxValues[2]);
-                            }
-                            if (!height || height === '100%') {
-                                height = parseFloat(viewBoxValues[3]);
-                            }
+                    // サイズ情報を表示
+                    sizeInfo.textContent = `オリジナルサイズ: ${Math.round(width)} × ${Math.round(height)} px`;
+                    
+                    // ブラウザ表示領域を考慮するかどうか
+                    let displayWidth = width;
+                    let displayHeight = height;
+                    
+                    if (!window.maintainOriginalSize) {
+                        // ブラウザの表示領域に合わせて調整
+                        const maxWidth = window.innerWidth * 0.85;
+                        const maxHeight = window.innerHeight * 0.7;
+                        
+                        if (displayWidth > maxWidth) {
+                            const ratio = displayHeight / displayWidth;
+                            displayWidth = maxWidth;
+                            displayHeight = displayWidth * ratio;
+                        }
+                        
+                        if (displayHeight > maxHeight) {
+                            const ratio = displayWidth / displayHeight;
+                            displayHeight = maxHeight;
+                            displayWidth = displayHeight * ratio;
                         }
                     }
                     
                     // サイズをプレビュー要素に設定
-                    htmlPreview.style.width = `${width}px`;
-                    htmlPreview.style.height = `${height}px`;
+                    htmlPreview.style.width = `${displayWidth}px`;
+                    htmlPreview.style.height = `${displayHeight}px`;
                     
                     // SVG自体にもスタイルを適用
                     svgElement.style.width = '100%';
@@ -1013,10 +1122,24 @@
                 } else {
                     // 通常のHTMLの場合
                     try {
+                        // スクロールバーを一時的に表示して正確なサイズを測定
+                        const measureStyle = document.createElement('style');
+                        measureStyle.textContent = `
+                            html, body {
+                                width: auto !important;
+                                height: auto !important;
+                                overflow: visible !important;
+                                margin: 0 !important;
+                                padding: 0 !important;
+                            }
+                        `;
+                        frameDoc.head.appendChild(measureStyle);
+                        
+                        // 強制的に再描画させる
                         const body = frameDoc.body;
                         const docElement = frameDoc.documentElement;
                         
-                        // 最大の幅と高さを取得
+                        // コンテンツの実際のサイズを取得
                         width = Math.max(
                             body.scrollWidth || 0,
                             body.offsetWidth || 0,
@@ -1034,6 +1157,10 @@
                             docElement.clientHeight || 0,
                             600
                         );
+                        
+                        // オリジナルサイズを保存
+                        window.originalWidth = width;
+                        window.originalHeight = height;
                         
                         // スケーリングスタイルを追加
                         const scaleStyle = document.createElement('style');
@@ -1079,25 +1206,34 @@
                 if (width < 300) width = 800;
                 if (height < 300) height = 600;
                 
-                // 最大値の制限（ブラウザの表示領域を考慮）
-                const maxWidth = window.innerWidth * 0.85;
-                const maxHeight = window.innerHeight * 0.7;
+                // サイズ情報を表示
+                document.getElementById('size-info').textContent = `オリジナルサイズ: ${Math.round(width)} × ${Math.round(height)} px`;
                 
-                if (width > maxWidth) {
-                    const ratio = height / width;
-                    width = maxWidth;
-                    height = width * ratio;
-                }
+                // ブラウザ表示領域を考慮するかどうか
+                let displayWidth = width;
+                let displayHeight = height;
                 
-                if (height > maxHeight) {
-                    const ratio = width / height;
-                    height = maxHeight;
-                    width = height * ratio;
+                if (!window.maintainOriginalSize) {
+                    // 最大値の制限（ブラウザの表示領域を考慮）
+                    const maxWidth = window.innerWidth * 0.85;
+                    const maxHeight = window.innerHeight * 0.7;
+                    
+                    if (displayWidth > maxWidth) {
+                        const ratio = displayHeight / displayWidth;
+                        displayWidth = maxWidth;
+                        displayHeight = displayWidth * ratio;
+                    }
+                    
+                    if (displayHeight > maxHeight) {
+                        const ratio = displayWidth / displayHeight;
+                        displayHeight = maxHeight;
+                        displayWidth = displayHeight * ratio;
+                    }
                 }
                 
                 // サイズをプレビュー要素に設定
-                htmlPreview.style.width = `${width}px`;
-                htmlPreview.style.height = `${height}px`;
+                htmlPreview.style.width = `${displayWidth}px`;
+                htmlPreview.style.height = `${displayHeight}px`;
                 
                 // スライド形式で印刷最適化する場合は追加のスタイル
                 if (window.isSlideFormat && window.optimizeForPrint) {
@@ -1328,15 +1464,15 @@
                         // SVG形式で保存
                         convertToSVG(visibleSlide);
                     } else {
-                        // スライドを画像として描画
+                                                    // スライドを画像として描画
                         html2canvas(visibleSlide, {
                             scale: 2,  // 高品質化
                             useCORS: true,
                             allowTaint: true,
                             backgroundColor: window.getComputedStyle(frameBody).backgroundColor || '#FFFFFF',
                             logging: false,
-                            width: visibleSlide.offsetWidth,
-                            height: visibleSlide.offsetHeight
+                            width: window.originalWidth || visibleSlide.offsetWidth,
+                            height: window.originalHeight || visibleSlide.offsetHeight
                         }).then(canvas => {
                             if (selectedFormat === 'jpg') {
                                 // JPGとしてダウンロード
@@ -1397,10 +1533,10 @@
                     allowTaint: true,
                     backgroundColor: window.getComputedStyle(frameBody).backgroundColor || '#FFFFFF',
                     logging: false,
-                    width: htmlPreview.offsetWidth,
-                    height: htmlPreview.offsetHeight,
-                    windowWidth: htmlPreview.offsetWidth,
-                    windowHeight: htmlPreview.offsetHeight
+                    width: window.originalWidth || htmlPreview.offsetWidth,
+                    height: window.originalHeight || htmlPreview.offsetHeight,
+                    windowWidth: window.originalWidth || htmlPreview.offsetWidth,
+                    windowHeight: window.originalHeight || htmlPreview.offsetHeight
                 }).then(canvas => {
                     try {
                         if (selectedFormat === 'jpg') {
@@ -1486,8 +1622,8 @@
                     img.onload = function() {
                         const canvas = document.createElement('canvas');
                         const htmlPreview = document.getElementById('html-preview');
-                        canvas.width = htmlPreview.offsetWidth;
-                        canvas.height = htmlPreview.offsetHeight;
+                        canvas.width = window.originalWidth || htmlPreview.offsetWidth;
+                        canvas.height = window.originalHeight || htmlPreview.offsetHeight;
                         
                         const ctx = canvas.getContext('2d');
                         ctx.fillStyle = 'white';
@@ -1619,11 +1755,15 @@
             const width = htmlPreview.offsetWidth;
             const height = htmlPreview.offsetHeight;
             
+            // 元のサイズを使用
+            const pdfWidth = window.originalWidth || width;
+            const pdfHeight = window.originalHeight || height;
+            
             // PDFのインスタンスを作成
             const pdf = new jsPDF({
-                orientation: height > width ? 'portrait' : 'landscape',
+                orientation: pdfHeight > pdfWidth ? 'portrait' : 'landscape',
                 unit: 'px',
-                format: [width, height],
+                format: [pdfWidth, pdfHeight],
                 compress: true,
                 hotfixes: ['px_scaling']
             });
@@ -1659,10 +1799,10 @@
                     allowTaint: true,
                     logging: false,
                     backgroundColor: window.getComputedStyle(iframe.contentDocument.body).backgroundColor || '#FFFFFF',
-                    width: width,
-                    height: height,
-                    windowWidth: width,
-                    windowHeight: height
+                    width: window.originalWidth || width,
+                    height: window.originalHeight || height,
+                    windowWidth: window.originalWidth || width,
+                    windowHeight: window.originalHeight || height
                 }).then(canvas => {
                     // PDFに追加
                     if (pageIndex > 0) {
@@ -1787,8 +1927,8 @@
                     allowTaint: true,
                     logging: false,
                     backgroundColor: window.getComputedStyle(iframe.contentDocument.body).backgroundColor || '#FFFFFF',
-                    width: htmlPreview.offsetWidth,
-                    height: htmlPreview.offsetHeight
+                    width: window.originalWidth || htmlPreview.offsetWidth,
+                    height: window.originalHeight || htmlPreview.offsetHeight
                 }).then(canvas => {
                     // ファイルをダウンロード
                     if (selectedFormat === 'jpg') {
@@ -1870,8 +2010,8 @@
                         allowTaint: true,
                         logging: false,
                         backgroundColor: window.getComputedStyle(iframe.contentDocument.body).backgroundColor || '#FFFFFF',
-                        width: htmlPreview.offsetWidth,
-                        height: htmlPreview.offsetHeight
+                        width: window.originalWidth || htmlPreview.offsetWidth,
+                        height: window.originalHeight || htmlPreview.offsetHeight
                     }).then(canvas => {
                         // ファイルをダウンロード
                         if (selectedFormat === 'jpg') {
