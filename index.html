@@ -1,1951 +1,1107 @@
-<!DOCTYPE html>
-<html lang="ja">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>HTML変換ツール</title>
-    <link rel="preconnect" href="https://fonts.googleapis.com">
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@300;400;500;700&display=swap" rel="stylesheet">
-    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet">
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/FileSaver.js/2.0.5/FileSaver.min.js"></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/dom-to-image/2.6.0/dom-to-image.min.js"></script>
-    <style>
-        :root {
-            --primary: #6366f1;
-            --primary-dark: #4f46e5;
-            --primary-light: #a5b4fc;
-            --dark: #1e293b;
-            --dark-light: #334155;
-            --light: #f8fafc;
-            --gray: #94a3b8;
-            --gray-light: #e2e8f0;
-            --success: #10b981;
-            --warning: #f59e0b;
-            --error: #ef4444;
-            --radius: 8px;
-            --shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
-            --shadow-lg: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
-        }
-        
-        body {
-            font-family: 'Noto Sans JP', sans-serif;
-            max-width: 1200px;
-            margin: 0 auto;
-            padding: 20px;
-            background-color: var(--light);
-            color: var(--dark);
-            line-height: 1.6;
-        }
-        
-        .container {
-            background-color: white;
-            border-radius: var(--radius);
-            padding: 30px;
-            box-shadow: var(--shadow);
-        }
-        
-        h1 {
-            text-align: center;
-            color: var(--dark);
-            margin-bottom: 10px;
-            font-weight: 700;
-            letter-spacing: -0.025em;
-        }
-        
-        .section {
-            margin-bottom: 40px;
-        }
-        
-        .section-title {
-            display: flex;
-            align-items: center;
-            background-color: var(--gray-light);
-            padding: 14px 18px;
-            border-radius: var(--radius);
-            margin-bottom: 20px;
-            font-weight: 500;
-            color: var(--dark);
-            position: relative;
-            overflow: hidden;
-        }
-        
-        .section-title::before {
-            content: '';
-            position: absolute;
-            left: 0;
-            top: 0;
-            bottom: 0;
-            width: 4px;
-            background: var(--primary);
-        }
-        
-        .section-title i {
-            margin-right: 10px;
-            color: var(--primary);
-        }
-        
-        .input-group {
-            margin-bottom: 20px;
-        }
-        
-        label {
-            display: block;
-            margin-bottom: 8px;
-            font-weight: 500;
-            color: var(--dark);
-        }
-        
-        .btn {
-            position: relative;
-            padding: 10px 20px;
-            background-color: var(--primary);
-            color: white;
-            border: none;
-            border-radius: var(--radius);
-            cursor: pointer;
-            font-weight: 500;
-            transition: all 0.2s ease;
-            display: inline-flex;
-            align-items: center;
-            justify-content: center;
-            box-shadow: 0 1px 3px rgba(0,0,0,0.12), 0 1px 2px rgba(0,0,0,0.24);
-        }
-        
-        .btn:hover {
-            background-color: var(--primary-dark);
-            transform: translateY(-1px);
-            box-shadow: 0 4px 6px rgba(0,0,0,0.12), 0 2px 4px rgba(0,0,0,0.24);
-        }
-        
-        .btn:active {
-            transform: translateY(0);
-            box-shadow: 0 1px 3px rgba(0,0,0,0.12), 0 1px 2px rgba(0,0,0,0.24);
-        }
-        
-        .btn i {
-            margin-right: 8px;
-        }
-        
-        .btn:disabled {
-            background-color: var(--gray);
-            cursor: not-allowed;
-            transform: none;
-            box-shadow: none;
-        }
-        
-        .file-upload {
-            position: relative;
-            overflow: hidden;
-            margin: 10px 0;
-            padding: 0;
-            display: inline-block;
-        }
-        
-        .file-upload input {
-            position: absolute;
-            top: 0;
-            right: 0;
-            margin: 0;
-            padding: 0;
-            font-size: 20px;
-            cursor: pointer;
-            opacity: 0;
-            filter: alpha(opacity=0);
-            height: 100%;
-            width: 100%;
-            z-index: 2;
-        }
-        
-        select, button, input[type="number"] {
-            padding: 10px;
-            width: 100%;
-            border: 1px solid var(--gray-light);
-            border-radius: var(--radius);
-            background-color: white;
-            margin-bottom: 10px;
-            font-family: inherit;
-        }
-        
-        select:focus, button:focus, input:focus {
-            outline: none;
-            border-color: var(--primary);
-            box-shadow: 0 0 0 3px var(--primary-light);
-        }
-        
-        .preview-wrapper {
-            margin: 20px auto;
-            padding: 20px;
-            border: 2px dashed var(--gray-light);
-            border-radius: var(--radius);
-            overflow: auto;
-            max-width: 100%;
-            background-color: #f9fafb;
-            text-align: center;
-            transition: border-color 0.3s;
-        }
-        
-        .preview-wrapper:hover {
-            border-color: var(--primary-light);
-        }
-        
-        #html-preview {
-            margin: 0 auto;
-            background-color: white;
-            box-shadow: var(--shadow);
-            overflow: hidden;
-            position: relative;
-            display: inline-block;
-        }
-        
-        .step {
-            background-color: white;
-            padding: 20px;
-            border-radius: var(--radius);
-            margin-bottom: 15px;
-            box-shadow: var(--shadow);
-        }
-        
-        .step-header {
-            display: flex;
-            align-items: center;
-            margin-bottom: 15px;
-        }
-        
-        .step-number {
-            display: inline-flex;
-            align-items: center;
-            justify-content: center;
-            width: 28px;
-            height: 28px;
-            background-color: var(--primary);
-            color: white;
-            text-align: center;
-            border-radius: 50%;
-            margin-right: 10px;
-            font-weight: 500;
-            flex-shrink: 0;
-        }
-        
-        .step-title {
-            font-weight: 500;
-            color: var(--dark);
-            margin: 0;
-        }
-        
-        .size-options {
-            display: flex;
-            flex-wrap: wrap;
-            gap: 15px;
-            margin-bottom: 20px;
-            width: 100%;
-        }
-        
-        .size-option {
-            flex: 1;
-            min-width: 200px;
-            background-color: white;
-            border: 2px solid var(--gray-light);
-            border-radius: var(--radius);
-            padding: 20px 15px;
-            text-align: center;
-            cursor: pointer;
-            transition: all 0.2s ease;
-            position: relative;
-        }
-        
-        .size-option:hover {
-            border-color: var(--primary-light);
-            box-shadow: var(--shadow);
-        }
-        
-        .size-option.selected {
-            border-color: var(--primary);
-            background-color: rgba(99, 102, 241, 0.05);
-        }
-        
-        .size-option-name {
-            font-weight: 500;
-            margin-bottom: 8px;
-            color: var(--dark);
-        }
-        
-        .size-dimensions {
-            font-size: 0.9rem;
-            color: var(--gray);
-        }
-        
-        .size-preview {
-            height: 60px;
-            margin: 10px auto;
-            background-color: var(--gray-light);
-            border-radius: calc(var(--radius) / 2);
-            position: relative;
-        }
-        
-        .size-preview-square {
-            width: 60px;
-        }
-        
-        .size-preview-landscape {
-            width: 106px; /* 16:9 aspect ratio */
-        }
-        
-        .size-preview-portrait {
-            width: 34px; /* 9:16 aspect ratio */
-        }
-        
-        .format-options {
-            display: flex;
-            gap: 10px;
-            margin-bottom: 20px;
-        }
-        
-        .format-option {
-            flex: 1;
-            text-align: center;
-            padding: 15px;
-            border: 2px solid var(--gray-light);
-            border-radius: var(--radius);
-            cursor: pointer;
-            transition: all 0.2s ease;
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-            justify-content: center;
-        }
-        
-        .format-option i {
-            font-size: 24px;
-            margin-bottom: 8px;
-            color: var(--gray);
-        }
-        
-        .format-option:hover {
-            border-color: var(--primary-light);
-            box-shadow: var(--shadow);
-        }
-        
-        .format-option.selected {
-            border-color: var(--primary);
-            background-color: rgba(99, 102, 241, 0.05);
-        }
-        
-        .format-option.selected i {
-            color: var(--primary);
-        }
-        
-        #status-message {
-            text-align: center;
-            margin: 15px 0;
-            padding: 15px;
-            border-radius: var(--radius);
-        }
-        
-        .success {
-            background-color: rgba(16, 185, 129, 0.1);
-            color: var(--success);
-            border-left: 4px solid var(--success);
-        }
-        
-        .error {
-            background-color: rgba(239, 68, 68, 0.1);
-            color: var(--error);
-            border-left: 4px solid var(--error);
-        }
-        
-        .warning {
-            background-color: rgba(245, 158, 11, 0.1);
-            color: var(--warning);
-            border-left: 4px solid var(--warning);
-        }
-        
-        .hidden {
-            display: none;
-        }
-        
-        .radio-group, .checkbox-group {
-            display: flex;
-            gap: 20px;
-            margin-bottom: 15px;
-            flex-wrap: wrap;
-        }
-        
-        .radio-option, .checkbox-option {
-            display: flex;
-            align-items: center;
-        }
-        
-        .radio-option input, .checkbox-option input {
-            margin-right: 8px;
-        }
-        
-        .custom-checkbox, .custom-radio {
-            position: relative;
-            padding-left: 30px;
-            cursor: pointer;
-            user-select: none;
-            display: inline-flex;
-            align-items: center;
-        }
-        
-        .custom-checkbox input, .custom-radio input {
-            position: absolute;
-            opacity: 0;
-            cursor: pointer;
-            height: 0;
-            width: 0;
-        }
-        
-        .checkmark {
-            position: absolute;
-            left: 0;
-            height: 20px;
-            width: 20px;
-            background-color: white;
-            border: 2px solid var(--gray-light);
-            transition: all 0.2s;
-        }
-        
-        .custom-radio .checkmark {
-            border-radius: 50%;
-        }
-        
-        .custom-checkbox .checkmark {
-            border-radius: 4px;
-        }
-        
-        .custom-checkbox:hover input ~ .checkmark, .custom-radio:hover input ~ .checkmark {
-            border-color: var(--primary-light);
-        }
-        
-        .custom-checkbox input:checked ~ .checkmark, .custom-radio input:checked ~ .checkmark {
-            background-color: var(--primary);
-            border-color: var(--primary);
-        }
-        
-        .checkmark:after {
-            content: "";
-            position: absolute;
-            display: none;
-        }
-        
-        .custom-checkbox input:checked ~ .checkmark:after, .custom-radio input:checked ~ .checkmark:after {
-            display: block;
-        }
-        
-        .custom-checkbox .checkmark:after {
-            left: 6px;
-            top: 2px;
-            width: 5px;
-            height: 10px;
-            border: solid white;
-            border-width: 0 2px 2px 0;
-            transform: rotate(45deg);
-        }
-        
-        .custom-radio .checkmark:after {
-            left: 6px;
-            top: 6px;
-            width: 8px;
-            height: 8px;
-            border-radius: 50%;
-            background: white;
-        }
-        
-        #download-btn-container {
-            display: flex;
-            gap: 15px;
-        }
-        
-        #download-btn-container button {
-            flex: 1;
-        }
-        
-        .footer {
-            text-align: center;
-            margin-top: 30px;
-            color: var(--gray);
-            font-size: 0.9em;
-        }
-        
-        .loading-spinner {
-            border: 3px solid rgba(99, 102, 241, 0.1);
-            border-top: 3px solid var(--primary);
-            border-radius: 50%;
-            width: 20px;
-            height: 20px;
-            animation: spin 1s linear infinite;
-            display: inline-block;
-            vertical-align: middle;
-            margin-right: 10px;
-        }
-        
-        .range-slider-container {
-            display: flex;
-            align-items: center;
-            gap: 15px;
-        }
-        
-        .range-slider {
-            flex: 1;
-            -webkit-appearance: none;
-            width: 100%;
-            height: 6px;
-            border-radius: 5px;
-            background: var(--gray-light);
-            outline: none;
-        }
-        
-        .range-slider::-webkit-slider-thumb {
-            -webkit-appearance: none;
-            appearance: none;
-            width: 18px;
-            height: 18px;
-            border-radius: 50%;
-            background: var(--primary);
-            cursor: pointer;
-            transition: all 0.2s;
-        }
-        
-        .range-slider::-moz-range-thumb {
-            width: 18px;
-            height: 18px;
-            border-radius: 50%;
-            background: var(--primary);
-            cursor: pointer;
-            border: none;
-            transition: all 0.2s;
-        }
-        
-        .range-slider::-webkit-slider-thumb:hover, .range-slider::-webkit-slider-thumb:active {
-            transform: scale(1.2);
-            background: var(--primary-dark);
-        }
-        
-        .range-slider::-moz-range-thumb:hover, .range-slider::-moz-range-thumb:active {
-            transform: scale(1.2);
-            background: var(--primary-dark);
-        }
-        
-        .range-value {
-            font-weight: 500;
-            color: var(--primary);
-            min-width: 50px;
-            text-align: center;
-            background: rgba(99, 102, 241, 0.1);
-            padding: 4px 8px;
-            border-radius: var(--radius);
-        }
-        
-        @keyframes spin {
-            0% { transform: rotate(0deg); }
-            100% { transform: rotate(360deg); }
-        }
-        
-        @media (max-width: 768px) {
-            .container {
-                padding: 20px;
-            }
-            
-            .radio-group, .checkbox-group {
-                flex-direction: column;
-                gap: 10px;
-            }
-            
-            #download-btn-container {
-                flex-direction: column;
-            }
-            
-            .format-options {
-                flex-direction: column;
-            }
-            
-            .size-options {
-                flex-direction: column;
-            }
-            
-            .size-option {
-                min-width: 100%;
-            }
-        }
-        
-        .tooltip {
-            position: relative;
-            display: inline-block;
-            cursor: help;
-            margin-left: 5px;
-            color: var(--gray);
-        }
-        
-        .tooltip .tooltip-text {
-            visibility: hidden;
-            width: 240px;
-            background-color: var(--dark);
-            color: white;
-            text-align: center;
-            border-radius: var(--radius);
-            padding: 8px 12px;
-            position: absolute;
-            z-index: 1;
-            bottom: 125%;
-            left: 50%;
-            margin-left: -120px;
-            opacity: 0;
-            transition: opacity 0.3s;
-            font-size: 0.9rem;
-            box-shadow: var(--shadow);
-            line-height: 1.4;
-        }
-        
-        .tooltip:hover .tooltip-text {
-            visibility: visible;
-            opacity: 1;
-        }
-        
-        .tooltip .tooltip-text::after {
-            content: "";
-            position: absolute;
-            top: 100%;
-            left: 50%;
-            margin-left: -5px;
-            border-width: 5px;
-            border-style: solid;
-            border-color: var(--dark) transparent transparent transparent;
-        }
-        
-        .image-thumb {
-            display: inline-block;
-            margin: 5px;
-            border: 1px solid var(--gray-light);
-            padding: 5px;
-            border-radius: var(--radius);
-            position: relative;
-            transition: all 0.2s;
-        }
-        
-        .image-thumb:hover {
-            border-color: var(--primary-light);
-            box-shadow: var(--shadow);
-        }
-        
-        .image-thumb img {
-            height: 40px;
-            vertical-align: middle;
-            border-radius: calc(var(--radius) / 2);
-        }
-        
-        .image-thumb .image-name {
-            display: inline-block;
-            max-width: 150px;
-            overflow: hidden;
-            text-overflow: ellipsis;
-            white-space: nowrap;
-            vertical-align: middle;
-            margin-left: 5px;
-            font-size: 0.9rem;
-        }
-        
-        .image-thumb .remove-btn {
-            position: absolute;
-            top: -8px;
-            right: -8px;
-            background: var(--error);
-            color: white;
-            border-radius: 50%;
-            width: 20px;
-            height: 20px;
-            line-height: 20px;
-            text-align: center;
-            font-size: 10px;
-            cursor: pointer;
-            box-shadow: 0 1px 3px rgba(0,0,0,0.2);
-            transition: transform 0.2s;
-        }
-        
-        .image-thumb .remove-btn:hover {
-            transform: scale(1.1);
-        }
-        
-        #size-info {
-            display: inline-block;
-            margin-top: 10px;
-            padding: 4px 10px;
-            background-color: rgba(148, 163, 184, 0.1);
-            border-radius: var(--radius);
-            color: var(--gray);
-            font-size: 0.9rem;
-        }
-    </style>
-</head>
-<body>
-    <div class="container">
-        <h1>HTML変換ツール</h1>
-        <p style="text-align: center; margin-bottom: 30px; color: var(--gray);">HTMLファイルをJPG、PDF、SVG形式に変換できるシンプルなツール</p>
-        
-        <div class="section">
-            <div class="section-title"><i class="fas fa-file-upload"></i>1. ファイルをアップロード</div>
-            <div class="step">
-                <div class="step-header">
-                    <span class="step-number">1</span>
-                    <h3 class="step-title">HTMLまたはSVGファイルを選択</h3>
-                </div>
-                <div class="file-upload">
-                    <button class="btn"><i class="fas fa-file-arrow-up"></i>ファイルを選択</button>
-                    <input type="file" id="html-file" accept=".html,.htm,.svg" onchange="handleFileUpload()">
-                </div>
-                <div id="file-name" style="margin-top: 10px; font-size: 0.9rem;"></div>
-                <div id="page-info" style="color: var(--gray); margin-top: 5px; font-style: italic;"></div>
-            </div>
-            
-            <div class="step">
-                <div class="step-header">
-                    <span class="step-number">2</span>
-                    <h3 class="step-title">追加の画像ファイル (オプション)</h3>
-                </div>
-                <p style="color: var(--gray); margin-bottom: 15px; font-size: 0.9rem;">
-                    HTMLファイル内から参照されている画像をアップロードします
-                    <span class="tooltip"><i class="fas fa-circle-info"></i>
-                        <span class="tooltip-text">画像のファイル名がHTMLファイル内の参照と一致している必要があります。</span>
-                    </span>
-                </p>
-                <div class="file-upload">
-                    <button class="btn"><i class="fas fa-images"></i>画像を選択</button>
-                    <input type="file" id="image-files" accept="image/*" multiple onchange="handleImageUpload()">
-                </div>
-                <div id="image-list" style="margin-top: 15px;"></div>
-            </div>
-            
-            <div class="step" id="page-options" style="display: none;">
-                <div class="step-header">
-                    <span class="step-number">3</span>
-                    <h3 class="step-title">ページオプション</h3>
-                </div>
-                <p style="color: var(--gray); margin-bottom: 15px; font-size: 0.9rem;">
-                    複数ページが検出されました
-                    <span class="tooltip"><i class="fas fa-circle-info"></i>
-                        <span class="tooltip-text">すべてのページを変換するか、特定のページのみを変換するか選択できます。</span>
-                    </span>
-                </p>
-                <div class="radio-group">
-                    <label class="custom-radio">
-                        <input type="radio" id="all-pages" name="page-selection" value="all" checked>
-                        <span class="checkmark"></span>
-                        すべてのページを変換
-                    </label>
-                    <label class="custom-radio">
-                        <input type="radio" id="selected-page" name="page-selection" value="selected">
-                        <span class="checkmark"></span>
-                        指定したページのみ変換
-                    </label>
-                </div>
-                
-                <div class="checkbox-group" style="margin-top: 15px;">
-                    <label class="custom-checkbox">
-                        <input type="checkbox" id="optimize-for-print" onchange="togglePrintOptimization()">
-                        <span class="checkmark"></span>
-                        印刷用に最適化
-                        <span class="tooltip"><i class="fas fa-circle-info"></i>
-                            <span class="tooltip-text">各ページが印刷可能な状態になるように最適化します。スライド形式のHTMLを印刷用に変換する場合に推奨します。</span>
-                        </span>
-                    </label>
-                </div>
-                
-                <div id="page-number-container" style="display: none; margin-top: 15px;">
-                    <label for="page-number">ページ番号:</label>
-                    <input type="number" id="page-number" min="1" value="1" style="width: 80px; padding: 8px;">
-                </div>
-            </div>
-        </div>
-        
-        <div class="section">
-            <div class="section-title"><i class="fas fa-crop"></i>2. サイズ設定とプレビュー</div>
-            <div class="step">
-                <div class="step-header">
-                    <span class="step-number">4</span>
-                    <h3 class="step-title">出力サイズを選択</h3>
-                </div>
-                <div class="size-options">
-                    <div class="size-option" onclick="selectSize('square')" id="size-square">
-                        <div class="size-option-name">正方形</div>
-                        <div class="size-preview size-preview-square"></div>
-                        <div class="size-dimensions">1200 × 1200 px</div>
-                    </div>
-                    <div class="size-option selected" onclick="selectSize('landscape')" id="size-landscape">
-                        <div class="size-option-name">横長 (16:9)</div>
-                        <div class="size-preview size-preview-landscape"></div>
-                        <div class="size-dimensions">1920 × 1080 px</div>
-                    </div>
-                    <div class="size-option" onclick="selectSize('portrait')" id="size-portrait">
-                        <div class="size-option-name">縦長 (9:16)</div>
-                        <div class="size-preview size-preview-portrait"></div>
-                        <div class="size-dimensions">1080 × 1920 px</div>
-                    </div>
-                </div>
-                
-                <div class="input-group">
-                    <label for="quality-slider">画質:</label>
-                    <div class="range-slider-container">
-                        <input type="range" id="quality-slider" class="range-slider" min="70" max="100" value="95" oninput="updateQualityValue()">
-                        <span id="quality-value" class="range-value">95%</span>
-                    </div>
-                </div>
-                
-                <div class="checkbox-group" style="margin-top: 15px; margin-bottom: 20px;">
-                    <label class="custom-checkbox">
-                        <input type="checkbox" id="freeze-animations" onchange="toggleFreezeAnimations()" checked>
-                        <span class="checkmark"></span>
-                        アニメーションを最終状態で固定
-                        <span class="tooltip"><i class="fas fa-circle-info"></i>
-                            <span class="tooltip-text">アニメーションやトランジションを最終状態（動きが完了した状態）で表示します。オフにすると初期状態で表示されます。</span>
-                        </span>
-                    </label>
-                </div>
-                
-                <button class="btn" id="preview-btn" disabled onclick="renderPreview()"><i class="fas fa-eye"></i>プレビュー表示</button>
-                <div class="preview-wrapper">
-                    <div id="html-preview"></div>
-                </div>
-                <div id="size-info" style="text-align: center;"></div>
-            </div>
-        </div>
-        
-        <div class="section">
-            <div class="section-title"><i class="fas fa-file-export"></i>3. 変換して保存</div>
-            <div class="step">
-                <div class="step-header">
-                    <span class="step-number">5</span>
-                    <h3 class="step-title">出力形式を選択</h3>
-                </div>
-                <div class="format-options">
-                    <div class="format-option selected" onclick="selectFormat('jpg')" id="format-jpg">
-                        <i class="far fa-file-image"></i>
-                        <span>JPG</span>
-                    </div>
-                    <div class="format-option" onclick="selectFormat('pdf')" id="format-pdf">
-                        <i class="far fa-file-pdf"></i>
-                        <span>PDF</span>
-                    </div>
-                    <div class="format-option" onclick="selectFormat('svg')" id="format-svg">
-                        <i class="far fa-file-code"></i>
-                        <span>SVG</span>
-                    </div>
-                </div>
-                
-                <div id="download-btn-container">
-                    <button class="btn" id="convert-btn" disabled onclick="convertAndDownload()"><i class="fas fa-download"></i>変換してダウンロード</button>
-                </div>
-                
-                <div id="status-message" class="hidden"></div>
-            </div>
-        </div>
-        
-        <div class="footer">
-            <p>このツールはブラウザ上で動作し、ファイルがサーバーにアップロードされることはありません。</p>
-        </div>
-    </div>
+// Enhanced status notification system
+function updateStatus(message, type = 'info', showSpinner = false) {
+    const statusMessage = document.getElementById('status-message');
+    statusMessage.innerHTML = '';
+    
+    if (showSpinner) {
+        const spinner = document.createElement('span');
+        spinner.className = 'loading-spinner';
+        statusMessage.appendChild(spinner);
+        statusMessage.appendChild(document.createTextNode(' ' + message));
+    } else {
+        statusMessage.textContent = message;
+    }
+    
+    statusMessage.className = type;
+    statusMessage.classList.remove('hidden');
+}
 
-    <script>
-        // グローバル変数
-        let htmlContent = '';
-        let selectedFormat = 'jpg';
-        let outputQuality = 0.95;
-        const { jsPDF } = window.jspdf;
+// Progress indicator for multi-page conversions
+function createProgressBar() {
+    const progressContainer = document.createElement('div');
+    progressContainer.id = 'progress-container';
+    progressContainer.style.width = '100%';
+    progressContainer.style.height = '8px';
+    progressContainer.style.backgroundColor = 'var(--gray-light)';
+    progressContainer.style.borderRadius = '4px';
+    progressContainer.style.marginTop = '10px';
+    progressContainer.style.overflow = 'hidden';
+    
+    const progressBar = document.createElement('div');
+    progressBar.id = 'progress-bar';
+    progressBar.style.width = '0%';
+    progressBar.style.height = '100%';
+    progressBar.style.backgroundColor = 'var(--primary)';
+    progressBar.style.transition = 'width 0.3s ease';
+    
+    progressContainer.appendChild(progressBar);
+    return progressContainer;
+}
+
+// Update progress bar
+function updateProgress(current, total) {
+    const progressBar = document.getElementById('progress-bar');
+    if (progressBar) {
+        const percentage = Math.round((current / total) * 100);
+        progressBar.style.width = `${percentage}%`;
+    }
+}
+
+// Optimize image loading with a cache system
+const imageCache = new Map();
+
+// Faster image processing function
+async function processImage(img, originalSrc) {
+    // Check cache first
+    if (imageCache.has(originalSrc)) {
+        return imageCache.get(originalSrc);
+    }
+    
+    // Try to use uploaded images
+    const imageName = originalSrc.split('/').pop();
+    if (window.uploadedImages && window.uploadedImages[imageName]) {
+        imageCache.set(originalSrc, window.uploadedImages[imageName]);
+        return window.uploadedImages[imageName];
+    }
+    
+    // Otherwise load and convert to data URL
+    return new Promise((resolve, reject) => {
+        const imgElement = new Image();
+        imgElement.crossOrigin = 'anonymous';
         
-        // スライド形式フラグ
-        window.isSlideFormat = false;
-        // 印刷用の最適化フラグ
-        window.optimizeForPrint = false;
-        // アップロードされた画像を保存するオブジェクト
-        window.uploadedImages = {};
-        // 元のファイルサイズを保持
-        window.originalWidth = null;
-        window.originalHeight = null;
-        // アニメーション固定フラグ
-        window.freezeAnimations = true;
-        // 選択されたサイズ設定 - デフォルトは横長
-        window.selectedSize = 'landscape';
-        // ワーカープール - 変換を高速化するため
-        window.workerPool = [];
-        
-        // 出力サイズ定義
-        const outputSizes = {
-            square: { width: 1200, height: 1200 },
-            landscape: { width: 1920, height: 1080 },
-            portrait: { width: 1080, height: 1920 }
+        imgElement.onload = function() {
+            try {
+                const canvas = document.createElement('canvas');
+                canvas.width = imgElement.width;
+                canvas.height = imgElement.height;
+                const ctx = canvas.getContext('2d');
+                ctx.drawImage(imgElement, 0, 0);
+                const dataURL = canvas.toDataURL('image/png');
+                imageCache.set(originalSrc, dataURL);
+                resolve(dataURL);
+            } catch (error) {
+                console.error('Image conversion error:', error);
+                reject(error);
+            }
         };
         
-        // ページロード時にワーカーを初期化
-        window.addEventListener('DOMContentLoaded', function() {
-            // 利用可能なCPUコア数に基づいてワーカー数を決定
-            const numWorkers = navigator.hardwareConcurrency ? Math.min(navigator.hardwareConcurrency - 1, 4) : 2;
-            
-            // キャッシュを初期化
-            window.renderedCache = new Map();
-            
-            // ページ選択ラジオボタンのイベント
-            const pageSelectionRadios = document.querySelectorAll('input[name="page-selection"]');
-            const pageNumberContainer = document.getElementById('page-number-container');
-            
-            pageSelectionRadios.forEach(radio => {
-                radio.addEventListener('change', function() {
-                    pageNumberContainer.style.display = 
-                        this.value === 'selected' ? 'block' : 'none';
-                });
-            });
-            
-            // ステータスメッセージを初期化
-            const statusMessage = document.getElementById('status-message');
-            statusMessage.textContent = 'HTMLまたはSVGファイルをアップロードしてください。';
-            statusMessage.className = '';
-            statusMessage.classList.remove('hidden');
-            
-            // 画質スライダーの初期化
-            updateQualityValue();
-        });
+        imgElement.onerror = () => reject(new Error(`Failed to load image: ${originalSrc}`));
         
-        // フォーマット選択
-        function selectFormat(format) {
-            selectedFormat = format;
-            document.querySelectorAll('.format-option').forEach(option => {
-                option.classList.remove('selected');
-            });
-            
-            // 選択されたフォーマットに応じて対応するオプションを選択状態にする
-            document.getElementById(`format-${format}`).classList.add('selected');
+        // Convert relative paths if needed
+        let imgSrc = originalSrc;
+        if (imgSrc.startsWith('./')) {
+            imgSrc = imgSrc.substring(2);
         }
         
-        // サイズ選択
-        function selectSize(size) {
-            window.selectedSize = size;
-            document.querySelectorAll('.size-option').forEach(option => {
-                option.classList.remove('selected');
-            });
-            
-            // 選択されたサイズに応じて対応するオプションを選択状態にする
-            document.getElementById(`size-${size}`).classList.add('selected');
-            
-            // プレビューが既に表示されている場合は再描画
-            if (!document.getElementById('preview-btn').disabled) {
-                renderPreview();
+        imgElement.src = imgSrc;
+        
+        // Set timeout for loading
+        setTimeout(() => {
+            if (!imgElement.complete) {
+                imgElement.src = '';
+                reject(new Error(`Image loading timed out: ${imgSrc}`));
             }
-        }
-        
-        // 印刷最適化オプションの切り替え
-        function togglePrintOptimization() {
-            window.optimizeForPrint = document.getElementById('optimize-for-print').checked;
-        }
-        
-        // アニメーション固定オプションの切り替え
-        function toggleFreezeAnimations() {
-            window.freezeAnimations = document.getElementById('freeze-animations').checked;
-            // プレビューが既に表示されている場合は再描画
-            if (!document.getElementById('preview-btn').disabled) {
-                renderPreview();
-            }
-        }
-        
-        // 画像をより効率的にプリロードする関数
-        function preloadImages(htmlContent, callback) {
-            const tempContainer = document.createElement('div');
-            tempContainer.innerHTML = htmlContent;
-            
-            // すべての画像要素を取得
-            const images = tempContainer.querySelectorAll('img');
-            let imagesToLoad = images.length;
-            
-            // 画像がない場合は即時コールバック
-            if (imagesToLoad === 0) {
-                callback(htmlContent);
+        }, 3000);
+    });
+}
+
+// Optimized preloading for images
+async function preloadImages(htmlContent) {
+    const tempContainer = document.createElement('div');
+    tempContainer.innerHTML = htmlContent;
+    
+    // Get all image elements
+    const images = tempContainer.querySelectorAll('img');
+    const totalImages = images.length;
+    
+    if (totalImages === 0) {
+        return htmlContent;
+    }
+    
+    updateStatus(`Loading images... (0/${totalImages})`, 'info', true);
+    
+    // Add progress bar
+    const statusMessage = document.getElementById('status-message');
+    const progressContainer = createProgressBar();
+    statusMessage.appendChild(progressContainer);
+    
+    // Process images in parallel with limit
+    const concurrentLimit = navigator.hardwareConcurrency ? Math.min(navigator.hardwareConcurrency, 4) : 2;
+    let processedCount = 0;
+    let failedCount = 0;
+    const imageMap = new Map();
+    
+    // Process in batches
+    for (let i = 0; i < totalImages; i += concurrentLimit) {
+        const batch = Array.from(images).slice(i, i + concurrentLimit);
+        const promises = batch.map(async (img) => {
+            const originalSrc = img.getAttribute('src');
+            if (!originalSrc || originalSrc.startsWith('data:') || originalSrc.startsWith('blob:')) {
                 return;
             }
             
-            // 進捗表示
-            const statusMessage = document.getElementById('status-message');
-            statusMessage.textContent = `画像をロード中... (0/${imagesToLoad})`;
-            statusMessage.className = '';
-            statusMessage.classList.remove('hidden');
-            
-            // Base64画像の変換リスト
-            const imageMap = new Map();
-            let loadedCount = 0;
-            let errorCount = 0;
-            
-            // 並列処理の最大数
-            const maxConcurrent = Math.min(imagesToLoad, 5);
-            let activeLoads = 0;
-            let queueIndex = 0;
-            
-            // 画像をキューに入れる
-            function processImageQueue() {
-                while (activeLoads < maxConcurrent && queueIndex < images.length) {
-                    loadImage(images[queueIndex++]);
-                    activeLoads++;
-                }
-                
-                // すべての画像の処理が完了したかチェック
-                if (loadedCount + errorCount === imagesToLoad) {
-                    finishProcessing();
-                }
+            try {
+                const dataURL = await processImage(img, originalSrc);
+                imageMap.set(originalSrc, dataURL);
+                processedCount++;
+            } catch (error) {
+                console.warn('Image processing error:', error);
+                failedCount++;
+            } finally {
+                // Update progress
+                updateStatus(`Loading images... (${processedCount}/${totalImages})`, 'info', true);
+                updateProgress(processedCount + failedCount, totalImages);
             }
-            
-            // 個々の画像を処理
-            function loadImage(img) {
-                const originalSrc = img.getAttribute('src');
-                if (!originalSrc || originalSrc.startsWith('data:') || originalSrc.startsWith('blob:')) {
-                    // すでにデータURLやblobの場合はスキップ
-                    imagesToLoad--;
-                    completeImageLoad();
-                    return;
-                }
-                
-                // アップロード済みの画像からマッチするものを探す
-                const imageName = originalSrc.split('/').pop();
-                if (window.uploadedImages[imageName]) {
-                    imageMap.set(originalSrc, window.uploadedImages[imageName]);
-                    loadedCount++;
-                    statusMessage.textContent = `画像をロード中... (${loadedCount}/${imagesToLoad})`;
-                    completeImageLoad();
-                    return;
-                }
-                
-                // ローカルファイルパスを絶対URLに変換する試み
-                let imgSrc = originalSrc;
-                if (imgSrc.startsWith('./')) {
-                    imgSrc = imgSrc.substring(2);
-                }
-                
-                // 画像を読み込み、Base64に変換
-                const imgElement = new Image();
-                imgElement.crossOrigin = 'anonymous';  // CORS対応
-                
-                imgElement.onload = function() {
-                    try {
-                        const canvas = document.createElement('canvas');
-                        canvas.width = imgElement.width;
-                        canvas.height = imgElement.height;
-                        const ctx = canvas.getContext('2d');
-                        ctx.drawImage(imgElement, 0, 0);
-                        const dataURL = canvas.toDataURL('image/png');
-                        imageMap.set(originalSrc, dataURL);
-                        
-                        loadedCount++;
-                        statusMessage.textContent = `画像をロード中... (${loadedCount}/${imagesToLoad})`;
-                        completeImageLoad();
-                    } catch (error) {
-                        console.error('画像変換エラー:', error, originalSrc);
-                        errorCount++;
-                        completeImageLoad();
-                    }
-                };
-                
-                imgElement.onerror = function() {
-                    console.warn('画像の読み込みに失敗しました:', imgSrc);
-                    errorCount++;
-                    completeImageLoad();
-                };
-                
-                // 読み込み開始
-                imgElement.src = imgSrc;
-                
-                // 一定時間後にタイムアウト処理
-                setTimeout(() => {
-                    if (!imgElement.complete) {
-                        imgElement.src = '';
-                        console.warn('画像の読み込みがタイムアウトしました:', imgSrc);
-                        errorCount++;
-                        completeImageLoad();
-                    }
-                }, 3000);
-            }
-            
-            // 画像読み込み完了ハンドラ
-            function completeImageLoad() {
-                activeLoads--;
-                processImageQueue();
-            }
-            
-            // すべての画像処理が完了したら実行
-            function finishProcessing() {
-                // HTMLコンテンツ内の画像パスをBase64に置き換え
-                let processedHTML = htmlContent;
-                imageMap.forEach((dataURL, originalSrc) => {
-                    const escapedSrc = originalSrc.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-                    const regex = new RegExp(`src=["']${escapedSrc}["']`, 'g');
-                    processedHTML = processedHTML.replace(regex, `src="${dataURL}"`);
-                });
-                
-                callback(processedHTML);
-                statusMessage.textContent = '画像の処理が完了しました。';
-                statusMessage.className = 'success';
-            }
-            
-            // 最初のバッチの処理を開始
-            processImageQueue();
-        }
+        });
         
-        // 追加の画像ファイルアップロード処理
-        function handleImageUpload() {
-            const imageInput = document.getElementById('image-files');
-            const imageList = document.getElementById('image-list');
+        await Promise.all(promises);
+    }
+    
+    // Replace image paths with data URLs
+    let processedHTML = htmlContent;
+    imageMap.forEach((dataURL, originalSrc) => {
+        const escapedSrc = originalSrc.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+        const regex = new RegExp(`src=["']${escapedSrc}["']`, 'g');
+        processedHTML = processedHTML.replace(regex, `src="${dataURL}"`);
+    });
+    
+    if (failedCount > 0) {
+        updateStatus(`Image processing complete. (${processedCount} loaded, ${failedCount} failed)`, 'warning');
+    } else {
+        updateStatus(`Image processing complete. All ${processedCount} images loaded.`, 'success');
+    }
+    
+    return processedHTML;
+}
+
+// Enhanced file upload handling with clear feedback
+async function handleFileUpload() {
+    const fileInput = document.getElementById('html-file');
+    const fileNameDisplay = document.getElementById('file-name');
+    const previewBtn = document.getElementById('preview-btn');
+    
+    // Clear size info
+    document.getElementById('size-info').textContent = '';
+    window.originalWidth = null;
+    window.originalHeight = null;
+    
+    if (fileInput.files.length === 0) {
+        fileNameDisplay.textContent = '';
+        previewBtn.disabled = true;
+        return;
+    }
+    
+    const file = fileInput.files[0];
+    fileNameDisplay.textContent = file.name;
+    updateStatus('Reading file...', 'info', true);
+    
+    // Get file extension
+    const fileExt = file.name.split('.').pop().toLowerCase();
+    
+    try {
+        if (fileExt === 'svg') {
+            // Handle SVG files
+            const content = await readFileAsText(file);
+            htmlContent = content;
             
-            if (imageInput.files.length > 0) {
-                // アップロードされた画像の一覧を表示
-                imageList.innerHTML = '<div style="margin-bottom: 10px; font-weight: 500;">選択された画像:</div>';
-                const imageContainer = document.createElement('div');
-                imageContainer.style.marginTop = '10px';
-                imageList.appendChild(imageContainer);
-                
-                // グローバル変数で画像を保存
-                window.uploadedImages = window.uploadedImages || {};
-                
-                // 画像の総数
-                const totalImages = imageInput.files.length;
-                let processedImages = 0;
-                
-                // 一度に処理する画像の数を制限
-                const batchSize = 5;
-                let currentBatchIndex = 0;
-                
-                function processBatch() {
-                    const endIndex = Math.min(currentBatchIndex + batchSize, totalImages);
-                    
-                    for (let i = currentBatchIndex; i < endIndex; i++) {
-                        const file = imageInput.files[i];
-                        const reader = new FileReader();
-                        
-                        reader.onload = function(e) {
-                            // 画像をBase64で保存
-                            const filename = file.name;
-                            window.uploadedImages[filename] = e.target.result;
-                            
-                            // サムネイルを表示
-                            const thumb = document.createElement('div');
-                            thumb.className = 'image-thumb';
-                            thumb.innerHTML = `
-                                <img src="${e.target.result}" alt="${filename}">
-                                <span class="image-name">${filename}</span>
-                                <span class="remove-btn" onclick="removeImage('${filename}')">×</span>
-                            `;
-                            imageContainer.appendChild(thumb);
-                            
-                            processedImages++;
-                            
-                            // 次のバッチを処理
-                            if (processedImages === totalImages) {
-                                // すべての処理が完了
-                            } else if (processedImages === endIndex) {
-                                currentBatchIndex = endIndex;
-                                setTimeout(processBatch, 0);
-                            }
-                        };
-                        
-                        reader.readAsDataURL(file);
-                    }
-                }
-                
-                // 最初のバッチを処理
-                processBatch();
+            // Extract SVG dimensions
+            const tempDiv = document.createElement('div');
+            tempDiv.innerHTML = content;
+            const svgElement = tempDiv.querySelector('svg');
+            
+            if (svgElement) {
+                extractSvgDimensions(svgElement);
+            }
+            
+            previewBtn.disabled = false;
+            selectFormat('svg');
+            updateStatus('SVG file loaded successfully.', 'success');
+            
+        } else if (fileExt === 'html' || fileExt === 'htm') {
+            // Handle HTML files
+            const content = await readFileAsText(file);
+            
+            // Process uploaded images
+            const processedContent = replaceUploadedImageReferences(content);
+            
+            // Preload images with better progress indication
+            htmlContent = await preloadImages(processedContent);
+            previewBtn.disabled = false;
+            
+            // Check for multiple pages
+            checkMultiplePages(htmlContent);
+            
+        } else {
+            // Unsupported file type
+            fileNameDisplay.textContent = 'Unsupported file format';
+            previewBtn.disabled = true;
+            updateStatus('Error: Unsupported file format. Please select an HTML or SVG file.', 'error');
+        }
+    } catch (error) {
+        console.error('File processing error:', error);
+        updateStatus(`Error processing file: ${error.message}`, 'error');
+        previewBtn.disabled = true;
+    }
+}
+
+// Promise-based file reading
+function readFileAsText(file) {
+    return new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = e => resolve(e.target.result);
+        reader.onerror = e => reject(new Error('File reading failed'));
+        reader.readAsText(file);
+    });
+}
+
+// Extract SVG dimensions
+function extractSvgDimensions(svgElement) {
+    // Get width and height
+    let width = svgElement.getAttribute('width');
+    let height = svgElement.getAttribute('height');
+    let viewBox = svgElement.getAttribute('viewBox');
+    
+    // Convert to numbers
+    if (width) {
+        width = parseFloat(width.replace('px', ''));
+        window.originalWidth = width || 800;
+    }
+    
+    if (height) {
+        height = parseFloat(height.replace('px', ''));
+        window.originalHeight = height || 600;
+    }
+    
+    // Get dimensions from viewBox if needed
+    if (viewBox && (!width || !height)) {
+        const viewBoxValues = viewBox.split(/[\s,]+/);
+        if (viewBoxValues.length >= 4) {
+            if (!window.originalWidth) {
+                window.originalWidth = parseFloat(viewBoxValues[2]);
+            }
+            if (!window.originalHeight) {
+                window.originalHeight = parseFloat(viewBoxValues[3]);
             }
         }
-        
-        // アップロードされた画像を削除
-        function removeImage(filename) {
-            if (window.uploadedImages && window.uploadedImages[filename]) {
-                delete window.uploadedImages[filename];
+    }
+}
+
+// Enhanced rendering preview with clear status indication
+async function renderPreview() {
+    const htmlPreview = document.getElementById('html-preview');
+    const convertBtn = document.getElementById('convert-btn');
+    const fileInput = document.getElementById('html-file');
+    const sizeInfo = document.getElementById('size-info');
+    
+    updateStatus('Generating preview...', 'info', true);
+    
+    let fileExt = '';
+    if (fileInput.files.length > 0) {
+        fileExt = fileInput.files[0].name.split('.').pop().toLowerCase();
+    }
+    
+    // Clear preview
+    htmlPreview.innerHTML = '';
+    
+    // Set output size
+    const outputSize = outputSizes[window.selectedSize];
+    
+    try {
+        if (fileExt === 'svg') {
+            // Handle SVG files
+            htmlPreview.innerHTML = htmlContent;
+            const svgElement = htmlPreview.querySelector('svg');
+            
+            if (svgElement) {
+                // Apply selected size
+                window.originalWidth = outputSize.width;
+                window.originalHeight = outputSize.height;
                 
-                // 画像リストからも削除
-                const imageElements = document.querySelectorAll('.image-thumb');
-                imageElements.forEach(el => {
-                    if (el.querySelector('.image-name').textContent === filename) {
-                        el.remove();
-                    }
-                });
+                // Display size info
+                sizeInfo.textContent = `Output size: ${outputSize.width} × ${outputSize.height} px`;
+                
+                // Set size on preview element
+                htmlPreview.style.width = `${outputSize.width}px`;
+                htmlPreview.style.height = `${outputSize.height}px`;
+                
+                // Apply styles to SVG
+                svgElement.setAttribute('width', outputSize.width);
+                svgElement.setAttribute('height', outputSize.height);
+                svgElement.setAttribute('preserveAspectRatio', 'xMidYMid meet');
+                svgElement.style.width = '100%';
+                svgElement.style.height = '100%';
+                svgElement.style.display = 'block';
             }
+            
+            updateStatus('Preview generated successfully.', 'success');
+            convertBtn.disabled = false;
+            
+        } else {
+            // Handle HTML files
+            await renderHtmlPreview(htmlPreview, htmlContent, outputSize);
+            sizeInfo.textContent = `Output size: ${outputSize.width} × ${outputSize.height} px`;
+            
+            // Adjust preview container
+            const previewWrapper = document.querySelector('.preview-wrapper');
+            const displayWidth = parseInt(htmlPreview.style.width);
+            previewWrapper.style.maxWidth = `${displayWidth + 40}px`;
+            previewWrapper.style.margin = '20px auto';
+            
+            updateStatus('Preview generated successfully.', 'success');
+            convertBtn.disabled = false;
         }
-        
-        // HTMLコンテンツをレンダリングする前に、アップロードされた画像の参照を置き換える
-        function replaceUploadedImageReferences(content) {
-            if (!window.uploadedImages || Object.keys(window.uploadedImages).length === 0) {
-                return content;
+    } catch (error) {
+        console.error('Preview generation error:', error);
+        updateStatus(`Error generating preview: ${error.message}`, 'error');
+    }
+}
+
+// Render HTML preview with iframe
+async function renderHtmlPreview(htmlPreview, content, outputSize) {
+    return new Promise((resolve, reject) => {
+        try {
+            // Create iframe
+            const contentFrame = document.createElement('iframe');
+            contentFrame.style.width = '100%';
+            contentFrame.style.height = '100%';
+            contentFrame.style.border = 'none';
+            contentFrame.style.overflow = 'hidden';
+            contentFrame.id = 'content-frame';
+            htmlPreview.appendChild(contentFrame);
+            
+            // Load content into iframe
+            const frameDoc = contentFrame.contentDocument || contentFrame.contentWindow.document;
+            frameDoc.open();
+            frameDoc.write(content);
+            frameDoc.close();
+            
+            // Handle animations if needed
+            if (window.freezeAnimations) {
+                applyFreezeAnimations(frameDoc);
             }
             
-            let modifiedContent = content;
-            
-            // アップロードされた各画像について処理
-            Object.keys(window.uploadedImages).forEach(filename => {
-                const escapedFilename = filename.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-                // 相対パスと絶対パスの両方に対応
-                const patterns = [
-                    new RegExp(`src=["'][^"']*/${escapedFilename}["']`, 'gi'),
-                    new RegExp(`src=["']${escapedFilename}["']`, 'gi')
-                ];
-                
-                patterns.forEach(regex => {
-                    modifiedContent = modifiedContent.replace(regex, `src="${window.uploadedImages[filename]}"`);
-                });
-            });
-            
-            return modifiedContent;
-        }
-        
-        // アニメーションを最終状態で固定するCSSを生成
-        function getFreezeAnimationsCSS() {
-            return `
-                * {
-                    animation-play-state: paused !important;
-                    animation-delay: -999s !important;
-                    transition: none !important;
-                }
-                
-                @keyframes freeze-animation {
-                    to { visibility: visible; }
-                }
-            `;
-        }
-        
-        // ファイルアップロード処理
-        function handleFileUpload() {
-            const fileInput = document.getElementById('html-file');
-            const fileNameDisplay = document.getElementById('file-name');
-            const previewBtn = document.getElementById('preview-btn');
-            const statusMessage = document.getElementById('status-message');
-            
-            // サイズ情報表示をリセット
-            document.getElementById('size-info').textContent = '';
-            
-            // 元のサイズ情報をリセット
-            window.originalWidth = null;
-            window.originalHeight = null;
-            
-            if (fileInput.files.length > 0) {
-                const file = fileInput.files[0];
-                fileNameDisplay.textContent = file.name;
-                
-                // ステータスメッセージを初期化して表示
-                statusMessage.textContent = 'ファイルを読み込んでいます...';
-                statusMessage.className = '';
-                statusMessage.classList.remove('hidden');
-                
-                // ファイル拡張子を取得
-                const fileExt = file.name.split('.').pop().toLowerCase();
-                
-                // SVGファイルの場合
-                if (fileExt === 'svg') {
-                    const reader = new FileReader();
-                    reader.onload = function(e) {
-                        htmlContent = e.target.result;
-                        
-                        // SVGのサイズを取得して保存
-                        const tempDiv = document.createElement('div');
-                        tempDiv.innerHTML = e.target.result;
-                        const svgElement = tempDiv.querySelector('svg');
-                        
-                        if (svgElement) {
-                            // SVGの元の寸法を取得
-                            let width = svgElement.getAttribute('width');
-                            let height = svgElement.getAttribute('height');
-                            let viewBox = svgElement.getAttribute('viewBox');
-                            
-                            // 単位を除去して数値に変換
-                            if (width) {
-                                if (typeof width === 'string' && width.endsWith('px')) {
-                                    width = parseFloat(width);
-                                } else if (typeof width === 'string') {
-                                    width = parseFloat(width);
-                                }
-                                window.originalWidth = width || 800;
-                            }
-                            
-                            if (height) {
-                                if (typeof height === 'string' && height.endsWith('px')) {
-                                    height = parseFloat(height);
-                                } else if (typeof height === 'string') {
-                                    height = parseFloat(height);
-                                }
-                                window.originalHeight = height || 600;
-                            }
-                            
-                            // viewBoxからサイズを取得（width/heightが無い場合）
-                            if (viewBox && (!width || !height)) {
-                                const viewBoxValues = viewBox.split(/[\s,]+/);
-                                if (viewBoxValues.length >= 4) {
-                                    if (!window.originalWidth) {
-                                        window.originalWidth = parseFloat(viewBoxValues[2]);
-                                    }
-                                    if (!window.originalHeight) {
-                                        window.originalHeight = parseFloat(viewBoxValues[3]);
-                                    }
-                                }
-                            }
-                        }
-                        
-                        previewBtn.disabled = false;
-                        // SVG形式を選択
-                        selectFormat('svg');
-                        
-                        statusMessage.textContent = 'SVGファイルの読み込みが完了しました。';
-                        statusMessage.className = 'success';
-                    };
-                    reader.readAsText(file);
-                } 
-                // HTMLファイルの場合
-                else if (fileExt === 'html' || fileExt === 'htm') {
-                    const reader = new FileReader();
-                    reader.onload = function(e) {
-                        const content = e.target.result;
-                        
-                        // アップロードされた画像の参照を置き換え
-                        const processedContent = replaceUploadedImageReferences(content);
-                        
-                        // 画像をプリロードして処理
-                        preloadImages(processedContent, function(finalContent) {
-                            htmlContent = finalContent;
-                            previewBtn.disabled = false;
-                            
-                            // 複数ページが含まれているか確認
-                            checkMultiplePages(htmlContent);
-                        });
-                    };
-                    reader.readAsText(file);
-                }
-                // その他のファイル形式
-                else {
-                    fileNameDisplay.textContent = 'サポートされていないファイル形式です';
-                    previewBtn.disabled = true;
-                    
-                    statusMessage.textContent = 'エラー: サポートされていないファイル形式です。HTMLまたはSVGファイルを選択してください。';
-                    statusMessage.className = 'error';
-                }
-            } else {
-                fileNameDisplay.textContent = '';
-                previewBtn.disabled = true;
-            }
-        }
-        
-        // 複数ページがあるかチェック - パフォーマンス改善版
-        function checkMultiplePages(content) {
-            // ページ区切りの正規表現パターン（通常のHTML）
-            const pageSeparators = [
-                /<div[^>]*class="?page"?[^>]*>/i,
-                /<div[^>]*id="?page[0-9]+"?[^>]*>/i,
-                /<section[^>]*class="?page"?[^>]*>/i,
-                /<article[^>]*class="?page"?[^>]*>/i,
-                /<hr[^>]*class="?page-break"?[^>]*>/i,
-                /<!-- *page-break *-->/i,
-                /<div[^>]*style="[^"]*page-break-before: always[^"]*"[^>]*>/i,
-                /<div[^>]*style="[^"]*page-break-after: always[^"]*"[^>]*>/i
-            ];
-            
-            // スライド形式のHTML特有のパターン
-            const slideSeparators = [
-                /<div[^>]*class="?slide"?[^>]*>/i,
-                /<div[^>]*id="?slide[0-9]+"?[^>]*>/i,
-                /<section[^>]*class="?slide"?[^>]*>/i,
-            ];
-            
-            // スライド送り形式のHTMLかをチェック
-            let isSlideFormat = false;
-            
-            // スライド関連のJavaScriptがあるか確認
-            if (content.includes('changeSlide') || 
-                content.includes('nextSlide') || 
-                content.includes('prevSlide') ||
-                content.includes('class="slides-container"')) {
-                isSlideFormat = true;
-            }
-            
-            // 効率的なマッチングのための関数
-            function countMatches(patterns, text) {
-                // 各パターンごとにマッチを検索
-                for (const pattern of patterns) {
-                    // 最初にマッチするかどうかを確認（高速）
-                    if (pattern.test(text)) {
-                        // マッチしたら、すべてのマッチを数える
-                        const matches = text.match(new RegExp(pattern.source, 'gi'));
-                        if (matches && matches.length > 0) {
-                            return matches.length;
-                        }
-                    }
-                }
-                return 0;
-            }
-            
-            // いずれかのパターンがマッチするかチェック
-            let hasMultiplePages = false;
-            let pageCount = 1;
-            let slidesCount = 0;
-            
-            // まず通常のページ区切りをチェック
-            const pageMatches = countMatches(pageSeparators, content);
-            if (pageMatches > 0) {
-                hasMultiplePages = true;
-                pageCount += pageMatches;
-            }
-            
-            // スライド区切りもチェック
-            const slideMatches = countMatches(slideSeparators, content);
-            if (slideMatches > 0) {
-                hasMultiplePages = true;
-                isSlideFormat = true;
-                slidesCount = slideMatches;
-                // スライド数が多い場合は、それを優先
-                if (slidesCount > pageCount - 1) {
-                    pageCount = slidesCount;
-                }
-            }
-            
-            // ページ数情報を更新
-            const pageInfo = document.getElementById('page-info');
-            if (isSlideFormat) {
-                pageInfo.textContent = `(スライド形式: ${pageCount}ページ検出)`;
-                // スライド形式フラグを設定
-                window.isSlideFormat = true;
-            } else {
-                pageInfo.textContent = hasMultiplePages ? `(${pageCount}ページ検出)` : '';
-                window.isSlideFormat = false;
-            }
-            
-            document.getElementById('page-options').style.display = 
-                hasMultiplePages ? 'block' : 'none';
-        }
-        
-        // ページ要素を取得
-        function getPages(doc) {
-            // 一般的なページ区切り要素を探す
-            let pages = [];
-            
-            // スライド形式の場合
-            if (window.isSlideFormat) {
-                // class="slide"を持つdiv要素
-                pages = Array.from(doc.querySelectorAll('div.slide'));
-                if (pages.length > 0) return pages;
-                
-                // id="slideX"形式のdiv要素
-                pages = Array.from(doc.querySelectorAll('div[id^="slide"]'));
-                if (pages.length > 0) return pages;
-                
-                // class="slide"を持つsection要素
-                pages = Array.from(doc.querySelectorAll('section.slide'));
-                if (pages.length > 0) return pages;
-            }
-            
-            // 通常のページ形式の場合
-            // class="page"を持つdiv要素
-            pages = Array.from(doc.querySelectorAll('div.page'));
-            if (pages.length > 0) return pages;
-            
-            // id="pageX"形式のdiv要素
-            pages = Array.from(doc.querySelectorAll('div[id^="page"]'));
-            if (pages.length > 0) return pages;
-            
-            // class="page"を持つsection要素
-            pages = Array.from(doc.querySelectorAll('section.page'));
-            if (pages.length > 0) return pages;
-            
-            // class="page"を持つarticle要素
-            pages = Array.from(doc.querySelectorAll('article.page'));
-            if (pages.length > 0) return pages;
-            
-            return [];
-        }
-        
-        // プレビュー表示
-        function renderPreview() {
-            const htmlPreview = document.getElementById('html-preview');
-            const convertBtn = document.getElementById('convert-btn');
-            const fileInput = document.getElementById('html-file');
-            const statusMessage = document.getElementById('status-message');
-            const sizeInfo = document.getElementById('size-info');
-            
-            // ステータスメッセージを表示
-            statusMessage.textContent = 'プレビューを生成中...';
-            statusMessage.className = '';
-            statusMessage.classList.remove('hidden');
-            
-            let fileExt = '';
-            if (fileInput.files.length > 0) {
-                fileExt = fileInput.files[0].name.split('.').pop().toLowerCase();
-            }
-            
-            // プレビュー要素の初期化
-            htmlPreview.innerHTML = '';
-            
-            // 選択されたサイズに基づいて出力サイズを設定
-            const outputSize = outputSizes[window.selectedSize];
-            
-            // 元のファイルのサイズを維持
-            if (fileExt === 'svg') {
-                // SVGファイルの場合は直接表示
-                htmlPreview.innerHTML = htmlContent;
-                
-                // SVG要素を取得してスタイル適用
-                const svgElement = htmlPreview.querySelector('svg');
-                if (svgElement) {
-                    // 選択されたサイズを上書き適用
-                    window.originalWidth = outputSize.width;
-                    window.originalHeight = outputSize.height;
-                    
-                    // サイズ情報を表示
-                    sizeInfo.textContent = `出力サイズ: ${outputSize.width} × ${outputSize.height} px`;
-                    
-                    // サイズをプレビュー要素に設定
-                    htmlPreview.style.width = `${outputSize.width}px`;
-                    htmlPreview.style.height = `${outputSize.height}px`;
-                    
-                    // SVG自体にもスタイルを適用 - アスペクト比を維持しつつリサイズ
-                    svgElement.setAttribute('width', outputSize.width);
-                    svgElement.setAttribute('height', outputSize.height);
-                    svgElement.setAttribute('preserveAspectRatio', 'xMidYMid meet');
-                    svgElement.style.width = '100%';
-                    svgElement.style.height = '100%';
-                    svgElement.style.display = 'block';
-                }
-                
-                // プレビュー完了メッセージ
-                statusMessage.textContent = 'プレビューが完了しました。';
-                statusMessage.className = 'success';
-                
-                // 変換ボタンを有効化
-                convertBtn.disabled = false;
-            } else {
-                // HTML場合はiframeで表示
-                const contentFrame = document.createElement('iframe');
-                contentFrame.style.width = '100%';
-                contentFrame.style.height = '100%';
-                contentFrame.style.border = 'none';
-                contentFrame.style.overflow = 'hidden';
-                contentFrame.id = 'content-frame';
-                htmlPreview.appendChild(contentFrame);
-                
-                // iframeにコンテンツをロード
-                const frameDoc = contentFrame.contentDocument || contentFrame.contentWindow.document;
-                frameDoc.open();
-                frameDoc.write(htmlContent);
-                frameDoc.close();
-                
-                // アニメーションを最終状態で固定する場合
-                if (window.freezeAnimations) {
-                    const styleElement = document.createElement('style');
-                    styleElement.textContent = getFreezeAnimationsCSS();
-                    frameDoc.head.appendChild(styleElement);
-                    
-                    // アニメーションやトランジションを停止する JavaScript
-                    const scriptElement = document.createElement('script');
-                    scriptElement.textContent = `
-                        // requestAnimationFrame や setTimeout のキャンセル
-                        (function() {
-                            // すべてのタイマーIDを保持する配列
-                            const highestId = setTimeout(() => {}, 0);
-                            for (let i = 0; i < highestId; i++) {
-                                clearTimeout(i);
-                                clearInterval(i);
-                            }
-                            
-                            // requestAnimationFrame をキャンセル
-                            const originalRequestAnimationFrame = window.requestAnimationFrame;
-                            window.requestAnimationFrame = function() {
-                                return 0; // 何もしない
-                            };
-                            
-                            // CSSアニメーションを100%の状態にする
-                            document.querySelectorAll('*').forEach(el => {
-                                const computedStyle = getComputedStyle(el);
-                                if (computedStyle.animationName !== 'none') {
-                                    el.style.animationPlayState = 'paused';
-                                    el.style.animationDelay = '-999s';
-                                }
-                            });
-                        })();
-                    `;
-                    frameDoc.body.appendChild(scriptElement);
-                }
-                
-                // スライドが適切に表示されるまで少し待機
-                setTimeout(() => {
-                    // スライド形式かどうかを確認
+            // Wait for content to load
+            setTimeout(() => {
+                try {
+                    // Handle slide format if detected
                     if (window.isSlideFormat) {
-                        // スライドサイズを使用
-                        try {
-                            const slides = getPages(frameDoc);
-                            if (slides.length > 0) {
-                                // 最初のスライドのみ表示
-                                slides.forEach((slide, index) => {
-                                    if (index === 0) {
-                                        slide.style.display = 'block';
-                                        slide.style.opacity = '1';
-                                        slide.style.position = 'relative';
-                                        slide.style.zIndex = '2';
-                                    } else {
-                                        slide.style.display = 'none';
-                                        slide.style.opacity = '0';
-                                        slide.style.position = 'absolute';
-                                        slide.style.zIndex = '1';
-                                    }
-                                });
-                                
-                                // スライドの原本のCSSを維持するため、全体のスタイルリセットは行わない
-                                const rootStyle = document.createElement('style');
-                                rootStyle.textContent = `
-                                    html, body {
-                                        overflow: hidden !important;
-                                        margin: 0 !important;
-                                        padding: 0 !important;
-                                        width: 100% !important;
-                                        height: 100% !important;
-                                    }
-                                `;
-                                frameDoc.head.appendChild(rootStyle);
-                            }
-                        } catch (error) {
-                            console.error('Error with slides:', error);
-                        }
+                        handleSlideFormatPreview(frameDoc);
                     } else {
-                        // 通常のHTMLの場合
-                        try {
-                            // スケーリングスタイルを追加
-                            const scaleStyle = document.createElement('style');
-                            scaleStyle.textContent = `
-                                html, body {
-                                    margin: 0;
-                                    padding: 0;
-                                    width: 100%;
-                                    height: 100%;
-                                    overflow: hidden;
-                                }
-                                
-                                body {
-                                    font-size: 16px;
-                                    line-height: 1.6;
-                                }
-                                
-                                * {
-                                    box-sizing: border-box;
-                                    max-width: 100%;
-                                    word-wrap: break-word;
-                                }
-                                
-                                img, video, canvas, svg {
-                                    max-width: 100%;
-                                    height: auto;
-                                }
-                                
-                                table {
-                                    table-layout: fixed;
-                                    width: 100%;
-                                }
-                            `;
-                            frameDoc.head.appendChild(scaleStyle);
-                        } catch (error) {
-                            console.error('Error styling document:', error);
-                        }
+                        // Apply scaling styles for normal HTML
+                        applyScalingStyles(frameDoc);
                     }
                     
-                    // 選択されたサイズを適用
+                    // Set dimensions
                     window.originalWidth = outputSize.width;
                     window.originalHeight = outputSize.height;
                     
-                    // サイズ情報を表示
-                    sizeInfo.textContent = `出力サイズ: ${outputSize.width} × ${outputSize.height} px`;
-                    
-                    // サイズをプレビュー要素に設定（ブラウザの表示に合わせてスケールダウン）
-                    let displayWidth = outputSize.width;
-                    let displayHeight = outputSize.height;
-                    
-                    // ブラウザ表示領域を考慮
-                    const maxWidth = window.innerWidth * 0.8;
-                    const maxHeight = window.innerHeight * 0.6;
-                    
-                    if (displayWidth > maxWidth) {
-                        const ratio = displayHeight / displayWidth;
-                        displayWidth = maxWidth;
-                        displayHeight = displayWidth * ratio;
-                    }
-                    
-                    if (displayHeight > maxHeight) {
-                        const ratio = displayWidth / displayHeight;
-                        displayHeight = maxHeight;
-                        displayWidth = displayHeight * ratio;
-                    }
+                    // Calculate display size (scaled for browser view)
+                    const { displayWidth, displayHeight } = calculateDisplaySize(
+                        outputSize.width,
+                        outputSize.height
+                    );
                     
                     htmlPreview.style.width = `${displayWidth}px`;
                     htmlPreview.style.height = `${displayHeight}px`;
                     
-                    // プレビュー完了メッセージ
-                    statusMessage.textContent = 'プレビューが完了しました。';
-                    statusMessage.className = 'success';
-                    
-                    // プレビューコンテナの調整
-                    const previewWrapper = document.querySelector('.preview-wrapper');
-                    previewWrapper.style.maxWidth = `${parseInt(htmlPreview.style.width) + 40}px`; // コンテナの最大幅を設定（余白含む）
-                    previewWrapper.style.margin = '20px auto'; // 中央寄せ
-                    
-                    // 変換ボタンを有効化
-                    convertBtn.disabled = false;
-                }, 300);
+                    resolve();
+                } catch (error) {
+                    reject(error);
+                }
+            }, 300);
+            
+        } catch (error) {
+            reject(error);
+        }
+    });
+}
+
+// Apply freeze animations CSS and JS
+function applyFreezeAnimations(frameDoc) {
+    // Add style to freeze animations
+    const styleElement = document.createElement('style');
+    styleElement.textContent = `
+        * {
+            animation-play-state: paused !important;
+            animation-delay: -999s !important;
+            transition: none !important;
+        }
+    `;
+    frameDoc.head.appendChild(styleElement);
+    
+    // Add script to stop animations
+    const scriptElement = document.createElement('script');
+    scriptElement.textContent = `
+        // Cancel timers and animations
+        (function() {
+            // Clear all timers
+            const highestId = setTimeout(() => {}, 0);
+            for (let i = 0; i < highestId; i++) {
+                clearTimeout(i);
+                clearInterval(i);
             }
+            
+            // Block requestAnimationFrame
+            window.requestAnimationFrame = function() { return 0; };
+            
+            // Set all CSS animations to 100% state
+            document.querySelectorAll('*').forEach(el => {
+                const computedStyle = getComputedStyle(el);
+                if (computedStyle.animationName !== 'none') {
+                    el.style.animationPlayState = 'paused';
+                    el.style.animationDelay = '-999s';
+                }
+            });
+        })();
+    `;
+    frameDoc.body.appendChild(scriptElement);
+}
+
+// Handle slide format preview
+function handleSlideFormatPreview(frameDoc) {
+    const slides = getPages(frameDoc);
+    if (slides.length > 0) {
+        // Show only first slide
+        slides.forEach((slide, index) => {
+            if (index === 0) {
+                slide.style.display = 'block';
+                slide.style.opacity = '1';
+                slide.style.position = 'relative';
+                slide.style.zIndex = '2';
+            } else {
+                slide.style.display = 'none';
+                slide.style.opacity = '0';
+                slide.style.position = 'absolute';
+                slide.style.zIndex = '1';
+            }
+        });
+        
+        // Add base styles for slides
+        const rootStyle = document.createElement('style');
+        rootStyle.textContent = `
+            html, body {
+                overflow: hidden !important;
+                margin: 0 !important;
+                padding: 0 !important;
+                width: 100% !important;
+                height: 100% !important;
+            }
+        `;
+        frameDoc.head.appendChild(rootStyle);
+    }
+}
+
+// Apply scaling styles for normal HTML
+function applyScalingStyles(frameDoc) {
+    const scaleStyle = document.createElement('style');
+    scaleStyle.textContent = `
+        html, body {
+            margin: 0;
+            padding: 0;
+            width: 100%;
+            height: 100%;
+            overflow: hidden;
         }
         
-        // 変換とダウンロード処理 - 最適化版
-        function convertAndDownload() {
-            const htmlPreview = document.getElementById('html-preview');
-            const statusMessage = document.getElementById('status-message');
-            const iframe = htmlPreview.querySelector('iframe');
-            const fileInput = document.getElementById('html-file');
-            const isSvgFile = fileInput.files.length > 0 && 
-                              fileInput.files[0].name.toLowerCase().endsWith('.svg');
+        body {
+            font-size: 16px;
+            line-height: 1.6;
+        }
+        
+        * {
+            box-sizing: border-box;
+            max-width: 100%;
+            word-wrap: break-word;
+        }
+        
+        img, video, canvas, svg {
+            max-width: 100%;
+            height: auto;
+        }
+        
+        table {
+            table-layout: fixed;
+            width: 100%;
+        }
+    `;
+    frameDoc.head.appendChild(scaleStyle);
+}
+
+// Calculate display size based on browser constraints
+function calculateDisplaySize(width, height) {
+    let displayWidth = width;
+    let displayHeight = height;
+    
+    // Consider browser viewport
+    const maxWidth = window.innerWidth * 0.8;
+    const maxHeight = window.innerHeight * 0.6;
+    
+    if (displayWidth > maxWidth) {
+        const ratio = displayHeight / displayWidth;
+        displayWidth = maxWidth;
+        displayHeight = displayWidth * ratio;
+    }
+    
+    if (displayHeight > maxHeight) {
+        const ratio = displayWidth / displayHeight;
+        displayHeight = maxHeight;
+        displayWidth = displayHeight * ratio;
+    }
+    
+    return { displayWidth, displayHeight };
+}
+
+// Convert to SVG format with optimizations
+async function convertToSVG(element) {
+    updateStatus('Converting to SVG format...', 'info', true);
+    updateProgress(20, 100);
+    
+    try {
+        // Use DOM to Image with better options
+        const svgDataUrl = await domtoimage.toSvg(element, {
+            width: outputSizes[window.selectedSize].width,
+            height: outputSizes[window.selectedSize].height,
+            style: {
+                'transform': 'scale(1)',
+                'transform-origin': 'top left'
+            },
+            quality: 1,
+            cacheBust: true
+        });
+        
+        updateProgress(80, 100);
+        
+        // Decode SVG content
+        const svgContent = atob(svgDataUrl.split(',')[1]);
+        
+        // Save as SVG file
+        const blob = new Blob([svgContent], {type: 'image/svg+xml;charset=utf-8'});
+        saveAs(blob, getFileName('svg'));
+        
+        updateStatus('SVG file downloaded successfully!', 'success');
+        updateProgress(100, 100);
+    } catch (error) {
+        console.error('SVG conversion error:', error);
+        
+        // Fallback to simpler method if the main one fails
+        try {
+            updateStatus('Using alternative SVG conversion method...', 'warning', true);
+            updateProgress(30, 100);
             
-            // 選択されたサイズに基づいて出力サイズを設定
-            const outputSize = outputSizes[window.selectedSize];
+            // Create SVG directly
+            const serializer = new XMLSerializer();
+            let svgContent = '<?xml version="1.0" encoding="UTF-8" standalone="no"?>\n';
             
-            // プレビューが空の場合
-            if (htmlPreview.innerHTML.trim() === '') {
-                statusMessage.textContent = 'エラー: プレビューが読み込まれていません。';
-                statusMessage.className = 'error';
-                statusMessage.classList.remove('hidden');
-                return;
-            }
+            // Create SVG element
+            const svgElement = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+            svgElement.setAttribute("xmlns", "http://www.w3.org/2000/svg");
+            svgElement.setAttribute("viewBox", `0 0 ${outputSizes[window.selectedSize].width} ${outputSizes[window.selectedSize].height}`);
+            svgElement.setAttribute("width", outputSizes[window.selectedSize].width);
+            svgElement.setAttribute("height", outputSizes[window.selectedSize].height);
             
-            // SVGファイルで直接表示の場合は特別処理
-            if (isSvgFile) {
-                const svgElement = htmlPreview.querySelector('svg');
-                if (svgElement) {
-                    handleSvgConversion(svgElement);
-                    return;
-                }
-            }
+            // Create foreign object for HTML content
+            const foreignObject = document.createElementNS("http://www.w3.org/2000/svg", "foreignObject");
+            foreignObject.setAttribute("width", "100%");
+            foreignObject.setAttribute("height", "100%");
             
-            // HTMLファイルの場合
-            statusMessage.textContent = '変換中...';
-            statusMessage.className = '';
-            statusMessage.classList.add('success');
-            statusMessage.classList.remove('hidden');
+            // Clone element
+            const clonedElement = element.cloneNode(true);
+            foreignObject.appendChild(clonedElement);
+            svgElement.appendChild(foreignObject);
             
-            // ページ選択とスライド処理のメイン関数
-            function processPagesOrSlides() {
-                if (!iframe && !isSvgFile) {
-                    statusMessage.textContent = 'エラー: プレビューフレームが見つかりません。';
-                    statusMessage.className = '';
-                    statusMessage.classList.add('error');
-                    return;
+            updateProgress(70, 100);
+            
+            // Serialize to SVG string
+            svgContent += serializer.serializeToString(svgElement);
+            
+            // Save file
+            const blob = new Blob([svgContent], {type: 'image/svg+xml;charset=utf-8'});
+            saveAs(blob, getFileName('svg'));
+            
+            updateStatus('SVG file downloaded using fallback method!', 'success');
+            updateProgress(100, 100);
+        } catch (backupError) {
+            console.error('SVG fallback conversion error:', backupError);
+            updateStatus('SVG conversion failed. Please try another format.', 'error');
+            throw error;
+        }
+    }
+}
+
+// Create multi-page PDF with optimized rendering
+async function createMultiPagePdf(iframe, pages) {
+    const outputSize = outputSizes[window.selectedSize];
+    
+    updateStatus(`Creating PDF with ${pages.length} pages...`, 'info', true);
+    
+    try {
+        // Create PDF instance
+        const pdf = new jsPDF({
+            orientation: outputSize.height > outputSize.width ? 'portrait' : 'landscape',
+            unit: 'px',
+            format: [outputSize.width, outputSize.height],
+            compress: true,
+            hotfixes: ['px_scaling']
+        });
+        
+        // HTML2Canvas options
+        const canvasOptions = {
+            scale: 2,
+            useCORS: true,
+            allowTaint: true,
+            backgroundColor: '#FFFFFF',
+            logging: false,
+            width: outputSize.width,
+            height: outputSize.height
+        };
+        
+        // Process pages in batches for better memory management
+        const batchSize = 3;
+        let currentPage = 0;
+        
+        for (let i = 0; i < pages.length; i += batchSize) {
+            const batch = pages.slice(i, i + batchSize);
+            
+            // Process each page in the batch
+            for (const [index, page] of batch.entries()) {
+                // Show current page, hide others
+                pages.forEach(p => p.style.display = 'none');
+                page.style.display = 'block';
+                
+                // Update status
+                updateStatus(`Creating PDF - Page ${i + index + 1} of ${pages.length}...`, 'info', true);
+                updateProgress((i + index) / pages.length * 100, 100);
+                
+                // Allow DOM to update
+                await new Promise(resolve => setTimeout(resolve, 100));
+                
+                // Render page
+                const canvas = await html2canvas(page, canvasOptions);
+                
+                // Add page to PDF
+                if (i + index > 0) {
+                    pdf.addPage();
                 }
                 
-                // SVGファイルでない場合に処理
-                if (!isSvgFile) {
-                    const frameDoc = iframe.contentDocument || iframe.contentWindow.document;
-                    
-                    // ページ選択オプションをチェック
-                    const pageSelection = document.querySelector('input[name="page-selection"]:checked').value;
-                    const selectedPageNumber = parseInt(document.getElementById('page-number').value) || 1;
-                    
-                    // ページ要素を取得
-                    const pages = getPages(frameDoc);
-                    
-                    // ページが見つからない場合は単一ページとして処理
-                    if (pages.length === 0) {
-                        // 高速化: 一度に処理する
-                        convertSinglePage(iframe);
-                        return;
-                    }
-                    
-                    // 複数ページの場合
-                    if (pageSelection === 'all') {
-                        // すべてのページを変換 - 高速化
-                        handleMultiplePages();
-                    } else {
-                        // 指定したページのみ変換
-                        if (selectedPageNumber <= pages.length) {
-                            // 他のページを非表示にする
-                            pages.forEach((page, index) => {
-                                if (index + 1 === selectedPageNumber) {
-                                    page.style.display = 'block';
-                                    page.style.opacity = '1';
-                                    page.style.position = 'relative';
-                                    page.style.zIndex = '2';
-                                } else {
-                                    page.style.display = 'none';
-                                    page.style.opacity = '0';
-                                    page.style.position = 'absolute';
-                                    page.style.zIndex = '1';
-                                }
-                            });
-                            
-                            // すぐに処理開始 - 待機時間を削減
-                            convertSinglePage(iframe);
-                        } else {
-                            statusMessage.textContent = `エラー: 指定されたページ番号(${selectedPageNumber})が範囲外です。`;
-                            statusMessage.className = '';
-                            statusMessage.classList.add('error');
-                        }
-                    }
-                }
+                pdf.addImage(
+                    canvas.toDataURL('image/jpeg', 1.0),
+                    'JPEG',
+                    0,
+                    0,
+                    outputSize.width,
+                    outputSize.height,
+                    undefined,
+                    'FAST'
+                );
+                
+                // Free memory
+                canvas.width = 0;
+                canvas.height = 0;
             }
             
-            // 処理を開始
-            processPagesOrSlides();
+            // Allow GC to run
+            await new Promise(resolve => setTimeout(resolve, 50));
         }
         
-        // 複数のページを一度に処理（全ページをPDFに）- 高速化版
-        function handleMultiplePages() {
-            const htmlPreview = document.getElementById('html-preview');
-            const statusMessage = document.getElementById('status-message');
-            const iframe = htmlPreview.querySelector('iframe');
+        // Save the PDF
+        pdf.save(getFileName('pdf'));
+        
+        updateStatus(`PDF with ${pages.length} pages downloaded successfully!`, 'success');
+        updateProgress(100, 100);
+    } catch (error) {
+        console.error('PDF creation error:', error);
+        updateStatus('Error creating PDF. Try with fewer pages or use JPG format.', 'error');
+        throw error;
+    }
+}
+
+// Create multiple files (for JPG format)
+async function createMultipleFiles(iframe, pages) {
+    const outputSize = outputSizes[window.selectedSize];
+    const totalPages = pages.length;
+    
+    updateStatus(`Creating ${totalPages} ${selectedFormat} files...`, 'info', true);
+    
+    try {
+        // HTML2Canvas options
+        const canvasOptions = {
+            scale: 2,
+            useCORS: true,
+            allowTaint: true,
+            backgroundColor: '#FFFFFF',
+            logging: false,
+            width: outputSize.width,
+            height: outputSize.height
+        };
+        
+        // Process in batches
+        const batchSize = 3;
+        const zip = new JSZip();
+        
+        for (let i = 0; i < totalPages; i += batchSize) {
+            const batch = pages.slice(i, i + batchSize);
             
-            if (!iframe) {
-                statusMessage.textContent = 'エラー: プレビューフレームが見つかりません。';
-                statusMessage.className = 'error';
-                statusMessage.classList.remove('hidden');
-                return;
+            // Process each page in batch
+            for (const [index, page] of batch.entries()) {
+                // Show current page, hide others
+                pages.forEach(p => p.style.display = 'none');
+                page.style.display = 'block';
+                
+                // Update status
+                updateStatus(`Processing image ${i + index + 1} of ${totalPages}...`, 'info', true);
+                updateProgress((i + index) / totalPages * 100, 100);
+                
+                // Allow DOM to update
+                await new Promise(resolve => setTimeout(resolve, 100));
+                
+                // Render page
+                const canvas = await html2canvas(page, canvasOptions);
+                
+                // Add to zip file
+                const dataUrl = canvas.toDataURL('image/jpeg', outputQuality);
+                const base64Data = dataUrl.split(',')[1];
+                zip.file(`page_${(i + index + 1).toString().padStart(3, '0')}.jpg`, base64Data, {base64: true});
+                
+                // Free memory
+                canvas.width = 0;
+                canvas.height = 0;
             }
             
-            const frameDoc = iframe.contentDocument || iframe.contentWindow.document;
-            const pages = getPages(frameDoc);
-            
-            if (pages.length === 0) {
-                // ページが見つからない場合は単一ページとして処理
-                convertSinglePage(iframe);
-                return;
+            // Allow GC to run
+            await new Promise(resolve => setTimeout(resolve, 50));
+        }
+        
+        // Generate zip file
+        updateStatus('Creating ZIP archive...', 'info', true);
+        const content = await zip.generateAsync({
+            type: 'blob',
+            compression: 'DEFLATE',
+            compressionOptions: {
+                level: 6
             }
-            
-            // スライド形式なら、文書背景色を適用
-            if (window.isSlideFormat) {
-                const bgColor = window.getComputedStyle(frameDoc.body).backgroundColor || '#FFFFFF';
-                for (const page of pages) {
-                    if (!page.style.backgroundColor) {
-                        page.style.backgroundColor = bgColor;
-                    }
+        }, (metadata) => {
+            updateProgress(90 + metadata.percent / 10, 100);
+        });
+        
+        // Save zip file
+        saveAs(content, getFileName('zip'));
+        
+        updateStatus(`ZIP file with ${totalPages} images downloaded successfully!`, 'success');
+        updateProgress(100, 100);
+    } catch (error) {
+        console.error('Multiple files creation error:', error);
+        updateStatus('Error creating files. Try with fewer pages or another format.', 'error');
+        throw error;
+    }
+}
+
+// Get file name based on format
+function getFileName(format) {
+    const fileInput = document.getElementById('html-file');
+    let baseName = 'converted';
+    
+    if (fileInput.files.length > 0) {
+        // Get original file name without extension
+        baseName = fileInput.files[0].name.split('.').slice(0, -1).join('.');
+    }
+    
+    // Add timestamp for uniqueness
+    const timestamp = new Date().toISOString().replace(/[-:.]/g, '').substring(0, 14);
+    
+    return `${baseName}_${timestamp}.${format}`;
+}
+
+// Check for multiple pages with improved performance
+function checkMultiplePages(content) {
+    // Page separators regex patterns
+    const pageSeparators = [
+        /<div[^>]*class="?page"?[^>]*>/i,
+        /<div[^>]*id="?page[0-9]+"?[^>]*>/i,
+        /<section[^>]*class="?page"?[^>]*>/i,
+        /<article[^>]*class="?page"?[^>]*>/i,
+        /<hr[^>]*class="?page-break"?[^>]*>/i,
+        /<!-- *page-break *-->/i,
+        /<div[^>]*style="[^"]*page-break-before: always[^"]*"[^>]*>/i,
+        /<div[^>]*style="[^"]*page-break-after: always[^"]*"[^>]*>/i
+    ];
+    
+    // Slide format patterns
+    const slideSeparators = [
+        /<div[^>]*class="?slide"?[^>]*>/i,
+        /<div[^>]*id="?slide[0-9]+"?[^>]*>/i,
+        /<section[^>]*class="?slide"?[^>]*>/i,
+    ];
+    
+    // Check for slide format
+    let isSlideFormat = false;
+    
+    // Check for slide-related JavaScript
+    if (content.includes('changeSlide') || 
+        content.includes('nextSlide') || 
+        content.includes('prevSlide') ||
+        content.includes('class="slides-container"')) {
+        isSlideFormat = true;
+    }
+    
+    // Efficient pattern matching
+    function countMatches(patterns, text) {
+        for (const pattern of patterns) {
+            if (pattern.test(text)) {
+                const matches = text.match(new RegExp(pattern.source, 'gi'));
+                if (matches && matches.length > 0) {
+                    return matches.length;
                 }
             }
+        }
+        return 0;
+    }
+    
+    // Check for pages and slides
+    let hasMultiplePages = false;
+    let pageCount = 1;
+    let slidesCount = 0;
+    
+    // Check standard page separators
+    const pageMatches = countMatches(pageSeparators, content);
+    if (pageMatches > 0) {
+        hasMultiplePages = true;
+        pageCount += pageMatches;
+    }
+    
+    // Check slide separators
+    const slideMatches = countMatches(slideSeparators, content);
+    if (slideMatches > 0) {
+        hasMultiplePages = true;
+        isSlideFormat = true;
+        slidesCount = slideMatches;
+        
+        // Use slide count if higher
+        if (slidesCount > pageCount - 1) {
+            pageCount = slidesCount;
+        }
+    }
+    
+    // Update page info
+    const pageInfo = document.getElementById('page-info');
+    if (isSlideFormat) {
+        pageInfo.textContent = `(Slide format: ${pageCount} pages detected)`;
+        window.isSlideFormat = true;
+    } else {
+        pageInfo.textContent = hasMultiplePages ? `(${pageCount} pages detected)` : '';
+        window.isSlideFormat = false;
+    }
+    
+    // Show/hide page options
+    document.getElementById('page-options').style.display = 
+        hasMultiplePages ? 'block' : 'none';
+}
+
+// Get page elements from document
+function getPages(doc) {
+    let pages = [];
+    
+    // For slide format
+    if (window.isSlideFormat) {
+        // Try various slide selectors
+        pages = Array.from(doc.querySelectorAll('div.slide'));
+        if (pages.length > 0) return pages;
+        
+        pages = Array.from(doc.querySelectorAll('div[id^="slide"]'));
+        if (pages.length > 0) return pages;
+        
+        pages = Array.from(doc.querySelectorAll('section.slide'));
+        if (pages.length > 0) return pages;
+    }
+    
+    // For standard page format
+    pages = Array.from(doc.querySelectorAll('div.page'));
+    if (pages.length > 0) return pages;
+    
+    pages = Array.from(doc.querySelectorAll('div[id^="page"]'));
+    if (pages.length > 0) return pages;
+    
+    pages = Array.from(doc.querySelectorAll('section.page'));
+    if (pages.length > 0) return pages;
+    
+    pages = Array.from(doc.querySelectorAll('article.page'));
+    if (pages.length > 0) return pages;
+    
+    return [];
+}
+
+// Replace references to uploaded images in HTML content
+function replaceUploadedImageReferences(content) {
+    if (!window.uploadedImages || Object.keys(window.uploadedImages).length === 0) {
+        return content;
+    }
+    
+    let modifiedContent = content;
+    
+    Object.keys(window.uploadedImages).forEach(filename => {
+        const escapedFilename = filename.replace(/[.*+?^${}()|[\]\\]/g, '\\// Enhanced conversion with clear status tracking and parallel processing');
+        const patterns = [
+            new RegExp(`src=["'][^"']*/${escapedFilename}["']`, 'gi'),
+            new RegExp(`src=["']${escapedFilename}["']`, 'gi')
+        ];
+        
+        patterns.forEach(regex => {
+            modifiedContent = modifiedContent.replace(regex, `src="${window.uploadedImages[filename]}"`);
+        });
+    });
+    
+    return modifiedContent;
+}
+
+// Update quality value display
+function updateQualityValue() {
+    const qualitySlider = document.getElementById('quality-slider');
+    const qualityValue = document.getElementById('quality-value');
+    
+    if (qualitySlider && qualityValue) {
+        const value = qualitySlider.value;
+        qualityValue.textContent = `${value}%`;
+        outputQuality = value / 100;
+    }
+}
+
+// Enhanced conversion with clear status tracking and parallel processing
+async function convertAndDownload() {
+    const htmlPreview = document.getElementById('html-preview');
+    const iframe = htmlPreview.querySelector('iframe');
+    const fileInput = document.getElementById('html-file');
+    const isSvgFile = fileInput.files.length > 0 && 
+                      fileInput.files[0].name.toLowerCase().endsWith('.svg');
+    
+    // Get output size
+    const outputSize = outputSizes[window.selectedSize];
+    
+    // Check if preview is empty
+    if (htmlPreview.innerHTML.trim() === '') {
+        updateStatus('Error: No preview loaded.', 'error');
+        return;
+    }
+    
+    // Add progress container
+    const statusMessage = document.getElementById('status-message');
+    const progressContainer = createProgressBar();
+    
+    // SVG file handling
+    if (isSvgFile) {
+        const svgElement = htmlPreview.querySelector('svg');
+        if (svgElement) {
+            updateStatus('Converting SVG...', 'info', true);
+            statusMessage.appendChild(progressContainer);
+            updateProgress(0, 100);
             
-            // 複数ページの場合の処理（PDFのみ対応）
+            try {
+                await handleSvgConversion(svgElement);
+                updateProgress(100, 100);
+                updateStatus(`SVG successfully converted to ${selectedFormat.toUpperCase()}!`, 'success');
+            } catch (error) {
+                console.error('SVG conversion error:', error);
+                updateStatus(`Error converting SVG: ${error.message}`, 'error');
+            }
+            return;
+        }
+    }
+    
+    // HTML file handling
+    updateStatus('Beginning conversion...', 'info', true);
+    statusMessage.appendChild(progressContainer);
+    updateProgress(10, 100);
+    
+    try {
+        if (!iframe && !isSvgFile) {
+            throw new Error('Preview frame not found');
+        }
+        
+        // Process pages or slides
+        const frameDoc = iframe.contentDocument || iframe.contentWindow.document;
+        const pageSelection = document.querySelector('input[name="page-selection"]:checked').value;
+        const selectedPageNumber = parseInt(document.getElementById('page-number').value) || 1;
+        const pages = getPages(frameDoc);
+        
+        // Single page case
+        if (pages.length === 0) {
+            updateStatus('Converting single page...', 'info', true);
+            updateProgress(20, 100);
+            await convertSinglePage(iframe);
+            updateProgress(100, 100);
+            return;
+        }
+        
+        // Multiple pages case
+        if (pageSelection === 'all') {
+            // Convert all pages
+            updateStatus(`Converting all ${pages.length} pages...`, 'info', true);
+            updateProgress(20, 100);
+            
             if (selectedFormat === 'pdf') {
-                createMultiPagePdf(iframe, pages);
+                await createMultiPagePdf(iframe, pages);
             } else {
-                // 複数のファイルを作成 - 高速化: バッチ処理
-                createMultipleFiles(iframe, pages);
+                await createMultipleFiles(iframe, pages);
+            }
+        } else {
+            // Convert selected page only
+            if (selectedPageNumber <= pages.length) {
+                // Hide other pages
+                pages.forEach((page, index) => {
+                    if (index + 1 === selectedPageNumber) {
+                        page.style.display = 'block';
+                        page.style.opacity = '1';
+                        page.style.position = 'relative';
+                        page.style.zIndex = '2';
+                    } else {
+                        page.style.display = 'none';
+                        page.style.opacity = '0';
+                        page.style.position = 'absolute';
+                        page.style.zIndex = '1';
+                    }
+                });
+                
+                updateStatus(`Converting page ${selectedPageNumber}...`, 'info', true);
+                updateProgress(20, 100);
+                await convertSinglePage(iframe);
+                updateProgress(100, 100);
+            } else {
+                updateStatus(`Error: Page number ${selectedPageNumber} is out of range.`, 'error');
+            }
+        }
+    } catch (error) {
+        console.error('Conversion error:', error);
+        updateStatus(`Conversion error: ${error.message}`, 'error');
+    }
+}
+
+// Convert single page with improved progress tracking and optimization
+async function convertSinglePage(iframe) {
+    const frameDoc = iframe.contentDocument || iframe.contentWindow.document;
+    const frameBody = frameDoc.body;
+    const outputSize = outputSizes[window.selectedSize];
+    
+    // Slide format special handling
+    if (window.isSlideFormat) {
+        const slides = getPages(frameDoc);
+        let visibleSlide = null;
+        
+        for (const slide of slides) {
+            if (window.getComputedStyle(slide).display !== 'none' && 
+                parseFloat(window.getComputedStyle(slide).opacity) > 0) {
+                visibleSlide = slide;
+                break;
             }
         }
         
-        // 単一ページの変換処理 - より高速な実装
-        function convertSinglePage(iframe) {
-            const htmlPreview = document.getElementById('html-preview');
-            const statusMessage = document.getElementById('status-message');
-            const frameDoc = iframe.contentDocument || iframe.contentWindow.document;
-            const frameBody = frameDoc.body;
-            
-            // 選択されたサイズ
-            const outputSize = outputSizes[window.selectedSize];
-            
-            // ローディングアイコンを表示
-            const loadingSpinner = document.createElement('span');
-            loadingSpinner.classList.add('loading-spinner');
-            statusMessage.innerHTML = '';
-            statusMessage.appendChild(loadingSpinner);
-            statusMessage.appendChild(document.createTextNode('変換中...'));
-            
-            // スライド形式の場合、特別な処理
-            if (window.isSlideFormat) {
-                // スライドが適切に表示されていることを確認
-                const slides = getPages(frameDoc);
-                let visibleSlide = null;
-                
-                for (const slide of slides) {
-                    if (window.getComputedStyle(slide).display !== 'none' && 
-                        parseFloat(window.getComputedStyle(slide).opacity) > 0) {
-                        visibleSlide = slide;
-                        break;
-                    }
-                }
-                
-                if (visibleSlide) {
-                    // 表示されているスライドのみを処理
-                    if (selectedFormat === 'svg') {
-                        // SVG形式で保存 - 最適化: より効率的なDOMシリアライズ
-                        convertToSVG(visibleSlide);
-                    } else {
-                        // 高速化: より効率的なオプション設定
-                        const canvasOptions = {
-                            scale: 2,  // 高品質化
-                            useCORS: true,
-                            allowTaint: true,
-                            backgroundColor: window.getComputedStyle(frameBody).backgroundColor || '#FFFFFF',
-                            logging: false,
-                            width: outputSize.width,
-                            height: outputSize.height,
-                            // 高速化: レンダリングをスキップするオプション
-                            skipRendering: false,
-                            // 高速化: より高速なDOMキャンバス処理
-                            onclone: (doc) => {
-                                // アニメーションの完全停止
-                                if (window.freezeAnimations) {
-                                    doc.querySelectorAll('*').forEach(el => {
-                                        if (el.style && el.style.animation) {
-                                            el.style.animationPlayState = 'paused';
-                                            el.style.animationDelay = '-999s';
-                                        }
-                                    });
-                                }
-                                return doc;
-                            }
-                        };
-                        
-                        // スライドを画像として描画
-                        html2canvas(visibleSlide, canvasOptions).then(canvas => {
-                            if (selectedFormat === 'jpg') {
-                                // JPGとしてダウンロード
-                                const link = document.createElement('a');
-                                link.download = getFileName('jpg');
-                                link.href = canvas.toDataURL('image/jpeg', outputQuality);
-                                link.click();
-                                
-                                statusMessage.textContent = 'JPGファイルのダウンロードが完了しました！';
-                            } else {
-                                // PDFとしてダウンロード
-                                const pdf = new jsPDF({
-                                    orientation: outputSize.height > outputSize.width ? 'portrait' : 'landscape',
-                                    unit: 'px',
-                                    format: [outputSize.width, outputSize.height],
-                                    compress: true,
-                                    hotfixes: ['px_scaling']
-                                });
-                                
-                                pdf.addImage(
-                                    canvas.toDataURL('image/jpeg', 1.0),
-                                    'JPEG',
-                                    0,
-                                    0,
-                                    outputSize.width,
-                                    outputSize.height,
-                                    undefined,
-                                    'FAST'
-                                );
-                                
-                                pdf.save(getFileName('pdf'));
-                                
-                                statusMessage.textContent = 'PDFファイルのダウンロードが完了しました！';
-                            }
-                            
-                            statusMessage.className = '';
-                            statusMessage.classList.add('success');
-                        }).catch(error => {
-                            console.error('HTML2Canvas エラー:', error);
-                            statusMessage.textContent = '変換中にエラーが発生しました。スライドの内容を確認してください。';
-                            statusMessage.className = '';
-                            statusMessage.classList.add('error');
-                        });
-                    }
-                    return;
-                }
-            }
-            
-            // 通常のHTML処理または表示されているスライドが見つからない場合
+        if (visibleSlide) {
             if (selectedFormat === 'svg') {
-                // SVG形式で保存
-                convertToSVG(frameDoc.documentElement);
+                updateStatus('Converting slide to SVG...', 'info', true);
+                updateProgress(30, 100);
+                await convertToSVG(visibleSlide);
+                updateProgress(100, 100);
             } else {
-                // 高速化: キャンバスオプションを最適化
+                updateStatus('Rendering slide...', 'info', true);
+                updateProgress(30, 100);
+                
                 const canvasOptions = {
                     scale: 2,
                     useCORS: true,
@@ -1953,106 +1109,173 @@
                     backgroundColor: window.getComputedStyle(frameBody).backgroundColor || '#FFFFFF',
                     logging: false,
                     width: outputSize.width,
-                    height: outputSize.height,
-                    windowWidth: outputSize.width,
-                    windowHeight: outputSize.height,
-                    // 高速化: より効率的なDOM処理
-                    foreignObjectRendering: true,
-                    // 高速化: スクロール問題を回避
-                    scrollX: 0,
-                    scrollY: 0
+                    height: outputSize.height
                 };
                 
-                // JPGまたはPDF形式で保存
-                html2canvas(frameDoc.documentElement, canvasOptions).then(canvas => {
-                    try {
-                        if (selectedFormat === 'jpg') {
-                            // JPGとしてダウンロード
-                            const link = document.createElement('a');
-                            link.download = getFileName('jpg');
-                            link.href = canvas.toDataURL('image/jpeg', outputQuality);
-                            link.click();
-                            
-                            statusMessage.textContent = 'JPGファイルのダウンロードが完了しました！';
-                        } else {
-                            // PDFとしてダウンロード
-                            const pdf = new jsPDF({
-                                orientation: outputSize.height > outputSize.width ? 'portrait' : 'landscape',
-                                unit: 'px',
-                                format: [outputSize.width, outputSize.height],
-                                compress: true,
-                                hotfixes: ['px_scaling']
-                            });
-                            
-                            // 画像をPDFに追加（高品質）
-                            pdf.addImage(
-                                canvas.toDataURL('image/jpeg', 1.0),
-                                'JPEG',
-                                0,
-                                0,
-                                outputSize.width,
-                                outputSize.height,
-                                undefined,
-                                'FAST'
-                            );
-                            
-                            pdf.save(getFileName('pdf'));
-                            
-                            statusMessage.textContent = 'PDFファイルのダウンロードが完了しました！';
-                        }
-                        
-                        statusMessage.className = '';
-                        statusMessage.classList.add('success');
-                    } catch (error) {
-                        console.error('変換エラー:', error);
-                        statusMessage.textContent = 'エラーが発生しました。もう一度お試しください。';
-                        statusMessage.className = '';
-                        statusMessage.classList.add('error');
-                    }
-                }).catch(error => {
-                    console.error('HTML2Canvas エラー:', error);
-                    statusMessage.textContent = '変換中にエラーが発生しました。HTMLの内容を確認してください。';
-                    statusMessage.className = '';
-                    statusMessage.classList.add('error');
-                });
-            }
-        }
-        
-        // SVGファイル変換の特別処理 - 高速化版
-        function handleSvgConversion(svgElement) {
-            const statusMessage = document.getElementById('status-message');
-            const outputSize = outputSizes[window.selectedSize];
-            
-            statusMessage.textContent = '変換中...';
-            statusMessage.className = '';
-            statusMessage.classList.add('success');
-            statusMessage.classList.remove('hidden');
-            
-            try {
-                // SVG要素からSVG文字列を取得
-                const serializer = new XMLSerializer();
-                let svgContent = '<?xml version="1.0" encoding="UTF-8" standalone="no"?>\n';
+                updateProgress(50, 100);
                 
-                // 元のSVG要素を複製して、サイズを変更
-                const svgClone = svgElement.cloneNode(true);
-                svgClone.setAttribute('width', outputSize.width);
-                svgClone.setAttribute('height', outputSize.height);
-                svgClone.setAttribute('viewBox', `0 0 ${outputSize.width} ${outputSize.height}`);
-                
-                svgContent += serializer.serializeToString(svgClone);
-                
-                if (selectedFormat === 'svg') {
-                    // SVGとして保存
-                    const blob = new Blob([svgContent], {type: 'image/svg+xml;charset=utf-8'});
-                    saveAs(blob, getFileName('svg'));
+                try {
+                    const canvas = await html2canvas(visibleSlide, canvasOptions);
+                    updateProgress(80, 100);
                     
-                    statusMessage.textContent = 'SVGファイルのダウンロードが完了しました！';
-                    statusMessage.className = '';
-                    statusMessage.classList.add('success');
-                } else {
-                    // SVGからキャンバスを作成して他の形式に変換
-                    const img = new Image();
-                    img.onload = function() {
+                    if (selectedFormat === 'jpg') {
+                        // Download as JPG
+                        const link = document.createElement('a');
+                        link.download = getFileName('jpg');
+                        link.href = canvas.toDataURL('image/jpeg', outputQuality);
+                        link.click();
+                        
+                        updateStatus('JPG file downloaded successfully!', 'success');
+                    } else {
+                        // Download as PDF
+                        updateProgress(90, 100);
+                        const pdf = new jsPDF({
+                            orientation: outputSize.height > outputSize.width ? 'portrait' : 'landscape',
+                            unit: 'px',
+                            format: [outputSize.width, outputSize.height],
+                            compress: true,
+                            hotfixes: ['px_scaling']
+                        });
+                        
+                        pdf.addImage(
+                            canvas.toDataURL('image/jpeg', 1.0),
+                            'JPEG',
+                            0,
+                            0,
+                            outputSize.width,
+                            outputSize.height,
+                            undefined,
+                            'FAST'
+                        );
+                        
+                        pdf.save(getFileName('pdf'));
+                        
+                        updateStatus('PDF file downloaded successfully!', 'success');
+                    }
+                    
+                    updateProgress(100, 100);
+                } catch (error) {
+                    console.error('HTML2Canvas error:', error);
+                    updateStatus('Error during conversion. Please check the slide content.', 'error');
+                    throw error;
+                }
+            }
+            return;
+        }
+    }
+    
+    // Regular HTML processing
+    if (selectedFormat === 'svg') {
+        updateStatus('Converting to SVG...', 'info', true);
+        updateProgress(30, 100);
+        await convertToSVG(frameDoc.documentElement);
+        updateProgress(100, 100);
+    } else {
+        updateStatus('Rendering content...', 'info', true);
+        updateProgress(30, 100);
+        
+        const canvasOptions = {
+            scale: 2,
+            useCORS: true,
+            allowTaint: true,
+            backgroundColor: window.getComputedStyle(frameBody).backgroundColor || '#FFFFFF',
+            logging: false,
+            width: outputSize.width,
+            height: outputSize.height,
+            windowWidth: outputSize.width,
+            windowHeight: outputSize.height,
+            foreignObjectRendering: true,
+            scrollX: 0,
+            scrollY: 0
+        };
+        
+        try {
+            updateProgress(50, 100);
+            const canvas = await html2canvas(frameDoc.documentElement, canvasOptions);
+            updateProgress(80, 100);
+            
+            if (selectedFormat === 'jpg') {
+                // Download as JPG
+                const link = document.createElement('a');
+                link.download = getFileName('jpg');
+                link.href = canvas.toDataURL('image/jpeg', outputQuality);
+                link.click();
+                
+                updateStatus('JPG file downloaded successfully!', 'success');
+            } else {
+                // Download as PDF
+                updateProgress(90, 100);
+                const pdf = new jsPDF({
+                    orientation: outputSize.height > outputSize.width ? 'portrait' : 'landscape',
+                    unit: 'px',
+                    format: [outputSize.width, outputSize.height],
+                    compress: true,
+                    hotfixes: ['px_scaling']
+                });
+                
+                pdf.addImage(
+                    canvas.toDataURL('image/jpeg', 1.0),
+                    'JPEG',
+                    0,
+                    0,
+                    outputSize.width,
+                    outputSize.height,
+                    undefined,
+                    'FAST'
+                );
+                
+                pdf.save(getFileName('pdf'));
+                
+                updateStatus('PDF file downloaded successfully!', 'success');
+            }
+            
+            updateProgress(100, 100);
+        } catch (error) {
+            console.error('Rendering error:', error);
+            updateStatus('Error during conversion. Please check the content.', 'error');
+            throw error;
+        }
+    }
+}
+
+// SVG to various formats with enhanced progress tracking
+async function handleSvgConversion(svgElement) {
+    return new Promise(async (resolve, reject) => {
+        try {
+            updateProgress(20, 100);
+            
+            // Get SVG content
+            const serializer = new XMLSerializer();
+            let svgContent = '<?xml version="1.0" encoding="UTF-8" standalone="no"?>\n';
+            
+            // Clone and resize SVG
+            const outputSize = outputSizes[window.selectedSize];
+            const svgClone = svgElement.cloneNode(true);
+            svgClone.setAttribute('width', outputSize.width);
+            svgClone.setAttribute('height', outputSize.height);
+            svgClone.setAttribute('viewBox', `0 0 ${outputSize.width} ${outputSize.height}`);
+            
+            svgContent += serializer.serializeToString(svgClone);
+            
+            updateProgress(40, 100);
+            
+            if (selectedFormat === 'svg') {
+                // Save as SVG
+                const blob = new Blob([svgContent], {type: 'image/svg+xml;charset=utf-8'});
+                saveAs(blob, getFileName('svg'));
+                
+                updateStatus('SVG file downloaded successfully!', 'success');
+                updateProgress(100, 100);
+                resolve();
+            } else {
+                // Convert to other formats
+                updateProgress(50, 100);
+                const img = new Image();
+                
+                img.onload = function() {
+                    try {
+                        updateProgress(70, 100);
+                        
                         const canvas = document.createElement('canvas');
                         canvas.width = outputSize.width;
                         canvas.height = outputSize.height;
@@ -2062,18 +1285,19 @@
                         ctx.fillRect(0, 0, canvas.width, canvas.height);
                         ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
                         
+                        updateProgress(80, 100);
+                        
                         if (selectedFormat === 'jpg') {
-                            // JPGとして保存
+                            // Save as JPG
                             const link = document.createElement('a');
                             link.download = getFileName('jpg');
                             link.href = canvas.toDataURL('image/jpeg', outputQuality);
                             link.click();
                             
-                            statusMessage.textContent = 'JPGファイルのダウンロードが完了しました！';
-                            statusMessage.className = '';
-                            statusMessage.classList.add('success');
+                            updateStatus('JPG file downloaded successfully!', 'success');
                         } else {
-                            // PDFとして保存
+                            // Save as PDF
+                            updateProgress(90, 100);
                             const pdf = new jsPDF({
                                 orientation: outputSize.height > outputSize.width ? 'portrait' : 'landscape',
                                 unit: 'px',
@@ -2092,153 +1316,5 @@
                             
                             pdf.save(getFileName('pdf'));
                             
-                            statusMessage.textContent = 'PDFファイルのダウンロードが完了しました！';
-                            statusMessage.className = '';
-                            statusMessage.classList.add('success');
+                            updateStatus('PDF file downloaded successfully!', 'success');
                         }
-                        
-                        // リソース解放
-                        URL.revokeObjectURL(img.src);
-                    };
-                    
-                    // 高速化: オブジェクトURLを使用
-                    const svgBlob = new Blob([svgContent], {type: 'image/svg+xml;charset=utf-8'});
-                    const url = URL.createObjectURL(svgBlob);
-                    img.src = url;
-                }
-            } catch (error) {
-                console.error('SVG変換エラー:', error);
-                statusMessage.textContent = 'SVG変換中にエラーが発生しました。';
-                statusMessage.className = '';
-                statusMessage.classList.add('error');
-            }
-        }
-        
-        // SVG形式に変換する処理 - 高速化版
-        function convertToSVG(element) {
-            const statusMessage = document.getElementById('status-message');
-            const outputSize = outputSizes[window.selectedSize];
-            
-            // DOM to Image を使用してSVGを作成
-            domtoimage.toSvg(element, {
-                width: outputSize.width,
-                height: outputSize.height,
-                style: {
-                    'transform': 'scale(1)',
-                    'transform-origin': 'top left'
-                }
-            })
-            .then(function(dataUrl) {
-                // Base64エンコードされたSVGデータをデコード
-                const svgContent = atob(dataUrl.split(',')[1]);
-                
-                // SVGファイルとして保存
-                const blob = new Blob([svgContent], {type: 'image/svg+xml;charset=utf-8'});
-                saveAs(blob, getFileName('svg'));
-                
-                statusMessage.textContent = 'SVGファイルのダウンロードが完了しました！';
-                statusMessage.className = '';
-                statusMessage.classList.add('success');
-            })
-            .catch(function(error) {
-                console.error('SVG変換エラー:', error);
-                
-                // 代替手段を試行 - より単純で高速なアプローチ
-                try {
-                    // HTMLの内容からSVGを直接作成
-                    const serializer = new XMLSerializer();
-                    let svgContent = '<?xml version="1.0" encoding="UTF-8" standalone="no"?>\n';
-                    
-                    // SVG要素を作成
-                    const svgElement = document.createElementNS("http://www.w3.org/2000/svg", "svg");
-                    svgElement.setAttribute("xmlns", "http://www.w3.org/2000/svg");
-                    svgElement.setAttribute("viewBox", `0 0 ${outputSize.width} ${outputSize.height}`);
-                    svgElement.setAttribute("width", outputSize.width);
-                    svgElement.setAttribute("height", outputSize.height);
-                    
-                    // HTMLの内容を外部オブジェクトとして配置
-                    const foreignObject = document.createElementNS("http://www.w3.org/2000/svg", "foreignObject");
-                    foreignObject.setAttribute("width", "100%");
-                    foreignObject.setAttribute("height", "100%");
-                    
-                    // 軽量なHTMLコンテンツのクローンを作成
-                    const clonedElement = element.cloneNode(true);
-                    foreignObject.appendChild(clonedElement);
-                    svgElement.appendChild(foreignObject);
-                    
-                    // SVG文字列に変換
-                    svgContent += serializer.serializeToString(svgElement);
-                    
-                    // SVGファイルとして保存
-                    const blob = new Blob([svgContent], {type: 'image/svg+xml;charset=utf-8'});
-                    saveAs(blob, getFileName('svg'));
-                    
-                    statusMessage.textContent = 'SVGファイルのダウンロードが完了しました！';
-                    statusMessage.className = '';
-                    statusMessage.classList.add('success');
-                } catch (backupError) {
-                    console.error('SVG代替変換エラー:', backupError);
-                    statusMessage.textContent = 'SVG変換中にエラーが発生しました。他の形式を試してください。';
-                    statusMessage.className = '';
-                    statusMessage.classList.add('error');
-                }
-            });
-        }
-        
-        // 複数ページのPDF作成 - 高速化版
-        function createMultiPagePdf(iframe, pages) {
-            const statusMessage = document.getElementById('status-message');
-            const outputSize = outputSizes[window.selectedSize];
-            
-            // PDFのインスタンスを作成
-            const pdf = new jsPDF({
-                orientation: outputSize.height > outputSize.width ? 'portrait' : 'landscape',
-                unit: 'px',
-                format: [outputSize.width, outputSize.height],
-                compress: true,
-                hotfixes: ['px_scaling']
-            });
-            
-            let pageIndex = 0;
-            let totalPages = pages.length;
-            statusMessage.innerHTML = '<span class="loading-spinner"></span>変換中... (ページ 1/' + totalPages + ')';
-            
-            // 並列処理のための準備
-            const batchSize = Math.min(3, Math.ceil(totalPages / 2)); // 一度に処理するページ数を制限
-            const processedPages = [];
-            let pendingCount = 0;
-            
-            // スライド形式で印刷最適化が有効な場合は特別処理
-            if (window.isSlideFormat && window.optimizeForPrint) {
-                // 各スライドを個別に処理
-                processAllSlides(pages, pdf);
-                return;
-            }
-            
-            // 各ページをバッチで処理
-            function processNextBatch() {
-                const startIndex = pageIndex;
-                const endIndex = Math.min(pageIndex + batchSize, totalPages);
-                
-                if (startIndex >= totalPages) {
-                    // すべてのページが処理されたらPDFを保存
-                    finalizePdf();
-                    return;
-                }
-                
-                // このバッチの各ページを処理
-                for (let i = startIndex; i < endIndex; i++) {
-                    processPage(i);
-                }
-                
-                // バッチインデックスを更新
-                pageIndex = endIndex;
-            }
-            
-            // 個々のページを処理
-            function processPage(index) {
-                pendingCount++;
-                
-                // ページを表示
-                pages.forEach((page, i) => {
-                    page.style.display = i === index ? 'block' : 'none
