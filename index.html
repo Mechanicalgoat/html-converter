@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>HTML/SVG コンバーター</title>
+    <title>スクリーンショット保存</title>
     <style>
         body {
             font-family: 'Inter', 'Helvetica Neue', Arial, sans-serif;
@@ -137,18 +137,6 @@
             0% { transform: rotate(0deg); }
             100% { transform: rotate(360deg); }
         }
-
-        #debug-info {
-            background-color: rgba(0,0,0,0.3);
-            color: #bbb;
-            font-size: 12px;
-            padding: 10px;
-            margin-top: 15px;
-            border-radius: 4px;
-            max-height: 200px;
-            overflow-y: auto;
-            display: none;
-        }
     </style>
 </head>
 <body>
@@ -169,7 +157,7 @@
                 <option value="1080x1920">1080 x 1920</option>
                 <option value="1920x1080">1920 x 1080</option>
             </select>
-            <button id="convert-btn" class="btn" disabled>JPGに変換</button>
+            <button id="save-btn" class="btn">スクリーンショット保存</button>
         </div>
 
         <div class="preview-container">
@@ -177,7 +165,6 @@
         </div>
 
         <div id="status"></div>
-        <div id="debug-info"></div>
     </div>
 
     <script src="https://html2canvas.hertzen.com/dist/html2canvas.min.js"></script>
@@ -186,23 +173,14 @@
         const fileDropZone = document.getElementById('file-drop-zone');
         const fileInput = document.getElementById('file-input');
         const preview = document.getElementById('preview');
-        const convertBtn = document.getElementById('convert-btn');
+        const saveBtn = document.getElementById('save-btn');
         const status = document.getElementById('status');
         const loading = document.getElementById('loading');
         const sizeSelect = document.getElementById('size-select');
-        const debugInfo = document.getElementById('debug-info');
 
         // グローバル変数
         let fileContent = null;
         let fileType = null;
-
-        // デバッグ情報を表示
-        function logDebug(message) {
-            const currentTime = new Date().toLocaleTimeString();
-            debugInfo.style.display = 'block';
-            debugInfo.innerHTML += `[${currentTime}] ${message}<br>`;
-            debugInfo.scrollTop = debugInfo.scrollHeight;
-        }
 
         // サイズ選択イベントリスナー
         sizeSelect.addEventListener('change', updatePreviewSize);
@@ -249,27 +227,14 @@
         function handleFile(file) {
             if (!file) return;
 
-            // デバッグ情報をリセット
-            debugInfo.innerHTML = '';
-            debugInfo.style.display = 'none';
-
             const reader = new FileReader();
             reader.onload = function(e) {
                 fileContent = e.target.result;
                 fileType = file.name.split('.').pop().toLowerCase();
 
-                // アニメーション終了を完全に検出するための拡張スクリプト
+                // アニメーション終了を検出するスクリプト
                 const animationHandlerScript = `
                     <script>
-                        // デバッグ出力用の関数
-                        function sendDebugMessage(message) {
-                            window.parent.postMessage({
-                                type: 'debug',
-                                message: message
-                            }, '*');
-                        }
-
-                        // すべてのCSSアニメーションを検出
                         function findAllAnimations() {
                             const elements = document.querySelectorAll('*');
                             const animations = [];
@@ -293,11 +258,9 @@
                             return animations;
                         }
 
-                        // アニメーション終了を待つ関数
                         function waitForAnimationsToComplete() {
                             return new Promise((resolve) => {
                                 const animations = findAllAnimations();
-                                sendDebugMessage(\`Found \${animations.length} animations\`);
 
                                 if (animations.length === 0) {
                                     resolve();
@@ -310,28 +273,19 @@
 
                                 // タイムアウト + 追加バッファ
                                 const timeoutDuration = maxDuration + 500;
-                                sendDebugMessage(\`Maximum animation duration: \${maxDuration}ms, Timeout set to \${timeoutDuration}ms\`);
 
-                                const timeout = setTimeout(() => {
-                                    sendDebugMessage('Animation timeout reached');
+                                setTimeout(() => {
+                                    // アニメーションの最後の状態を確定
+                                    animations.forEach(anim => {
+                                        anim.element.style.animationPlayState = 'paused';
+                                    });
                                     resolve();
                                 }, timeoutDuration);
-
-                                // アニメーション終了後に解決
-                                animations.forEach(anim => {
-                                    anim.element.addEventListener('animationend', () => {
-                                        clearTimeout(timeout);
-                                        resolve();
-                                    }, { once: true });
-                                });
                             });
                         }
 
-                        // ページ読み込み完了後にアニメーション終了を待つ
                         window.addEventListener('load', () => {
-                            sendDebugMessage('Page loaded, waiting for animations');
                             waitForAnimationsToComplete().then(() => {
-                                sendDebugMessage('All animations completed');
                                 window.parent.postMessage('animationEnded', '*');
                             });
                         });
@@ -366,12 +320,9 @@
                 const messageHandler = (event) => {
                     if (event.data === 'animationEnded') {
                         // アニメーション終了を検出
-                        convertBtn.disabled = false;
-                        showStatus('アニメーション終了。変換可能です。', 'success');
+                        saveBtn.disabled = false;
+                        showStatus('スクリーンショット準備完了', 'success');
                         window.removeEventListener('message', messageHandler);
-                    } else if (event.data && event.data.type === 'debug') {
-                        // デバッグメッセージを表示
-                        logDebug(event.data.message);
                     }
                 };
 
@@ -388,14 +339,13 @@
             reader.readAsText(file);
         }
 
-        // 変換ボタンのイベントリスナー
-        convertBtn.addEventListener('click', convertToImage);
+        // スクリーンショット保存ボタンのイベントリスナー
+        saveBtn.addEventListener('click', saveScreenshot);
 
-        function convertToImage() {
+        function saveScreenshot() {
             // ローディング表示
             loading.style.display = 'flex';
             status.textContent = '';
-            debugInfo.style.display = 'none';
 
             // 選択されたサイズを取得
             const [width, height] = sizeSelect.value.split('x').map(Number);
@@ -419,20 +369,22 @@
 
                 // 画像として保存
                 const link = document.createElement('a');
-                link.download = `converted_${new Date().toISOString().replace(/[:.]/g, '')}.jpg`;
+                link.download = `screenshot_${new Date().toISOString().replace(/[:.]/g, '')}.jpg`;
                 link.href = canvas.toDataURL('image/jpeg', 0.9);
                 link.click();
 
                 // ステータス表示
-                showStatus('JPGに変換しました', 'success');
+                showStatus('スクリーンショットを保存しました', 'success');
             }).catch(error => {
                 // ローディング非表示
                 loading.style.display = 'none';
 
-                console.error('変換エラー:', error);
-                showStatus('変換中にエラーが発生しました', 'error');
+                console.error('スクリーンショット保存エラー:', error);
+                showStatus('スクリーンショット保存中にエラーが発生しました', 'error');
             });
-            // ステータス表示関数
+        }
+
+        // ステータス表示関数
         function showStatus(message, type) {
             status.textContent = message;
             status.className = `status-${type}`;
