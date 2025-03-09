@@ -27,6 +27,7 @@
             justify-content: center;
             align-items: center;
             min-height: 100vh;
+            padding: 20px;
         }
 
         .converter-container {
@@ -115,9 +116,40 @@
             background-color: rgba(244,67,54,0.1);
             color: #F44336;
         }
+
+        #loading-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background-color: rgba(0,0,0,0.5);
+            display: none;
+            justify-content: center;
+            align-items: center;
+            z-index: 1000;
+        }
+
+        .loading-spinner {
+            width: 50px;
+            height: 50px;
+            border: 5px solid #f3f3f3;
+            border-top: 5px solid var(--primary-blue);
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+        }
+
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
     </style>
 </head>
 <body>
+    <div id="loading-overlay">
+        <div class="loading-spinner"></div>
+    </div>
+
     <div class="converter-container">
         <div id="file-drop-zone" class="file-drop-zone">
             <input type="file" id="file-input" accept=".html,.htm">
@@ -143,6 +175,10 @@
         <div id="status-message"></div>
     </div>
 
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+
     <script>
         // DOM要素の取得
         const fileDropZone = document.getElementById('file-drop-zone');
@@ -151,10 +187,21 @@
         const previewFrame = document.getElementById('preview');
         const statusMessage = document.getElementById('status-message');
         const outputFormat = document.getElementById('output-format');
+        const loadingOverlay = document.getElementById('loading-overlay');
 
         // グローバル変数
         let fileContent = null;
         let slideCount = 0;
+
+        // ローディング表示
+        function showLoading() {
+            loadingOverlay.style.display = 'flex';
+        }
+
+        // ローディング非表示
+        function hideLoading() {
+            loadingOverlay.style.display = 'none';
+        }
 
         // デフォルトのドラッグ&ドロップイベント防止
         ['dragenter', 'dragover', 'dragleave', 'drop'].forEach(eventName => {
@@ -202,10 +249,13 @@
                 fileContent = e.target.result;
 
                 // プレビュー表示
-                displayPreview(fileContent);
+                previewFrame.srcdoc = fileContent;
 
                 // スライド数を検出
-                slideCount = detectSlides(fileContent);
+                const tempDiv = document.createElement('div');
+                tempDiv.innerHTML = fileContent;
+                const slides = tempDiv.querySelectorAll('.slide');
+                slideCount = slides.length || 1;
 
                 // 変換ボタンを有効化
                 convertBtn.disabled = false;
@@ -221,18 +271,6 @@
             reader.readAsText(file);
         }
 
-        function displayPreview(content) {
-            const previewFrame = document.getElementById('preview');
-            previewFrame.srcdoc = content;
-        }
-
-        function detectSlides(content) {
-            // スライド検出のロジック
-            const slideRegex = /class="slide"/g;
-            const matches = content.match(slideRegex);
-            return matches ? matches.length : 1;
-        }
-
         // 変換ボタンのイベントリスナー
         convertBtn.addEventListener('click', convertFile);
 
@@ -245,6 +283,7 @@
             const format = outputFormat.value;
 
             try {
+                showLoading();
                 switch(format) {
                     case 'pdf':
                         convertToPdf();
@@ -257,6 +296,7 @@
                         break;
                 }
             } catch (error) {
+                hideLoading();
                 showStatus(`変換中にエラーが発生しました: ${error.message}`, 'error');
                 console.error(error);
             }
@@ -264,68 +304,117 @@
 
         // PDF変換
         function convertToPdf() {
-            // PDFライブラリを動的に読み込む
-            Promise.all([
-                loadScript('https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js'),
-                loadScript('https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js')
-            ]).then(() => {
-                const { jsPDF } = window.jspdf;
-                const pdf = new jsPDF('p', 'mm', 'a4');
+            // 一時的なDOMを作成
+            const tempDiv = document.createElement('div');
+            tempDiv.innerHTML = fileContent;
+            const slides = tempDiv.querySelectorAll('.slide');
 
-                // スライドを順番に追加
-                const slides = document.querySelectorAll('.slide');
-                slides.forEach((slide, index) => {
-                    if (index > 0) pdf.addPage();
-                    
-                    html2canvas(slide).then(canvas => {
-                        const imgData = canvas.toDataURL('image/png');
-                        const imgProps = pdf.getImageProperties(imgData);
-                        const pdfWidth = pdf.internal.pageSize.getWidth();
-                        const pdfHeight = (imgProps.height * pdfWidth) / imgProps.width;
-                        
-                        pdf.addImage(imgData, 'PNG', 0, 0, pdfWidth, pdfHeight);
-                        
-                        // 最後のスライドで保存
-                        if (index === slides.length - 1) {
-                            pdf.save(`slides_${new Date().toISOString().replace(/[:.]/g, '')}.pdf`);
-                            showStatus('PDFに変換しました', 'success');
-                        }
-                    });
-                });
-            }).catch(error => {
-                showStatus('PDF変換ライブラリの読み込みに失敗しました', 'error');
+            if (slides.length === 0) {
+                slides = [tempDiv.body]; // スライドがない場合は全体を使用
+            }
+
+            const { jsPDF } = window.jspdf;
+            const pdf = new jsPDF({
+                orientation: 'landscape',
+                unit: 'px',
+                format: 'a4'
             });
+
+            // 再帰的にスライドを変換
+            function convertSlide(index) {
+                if (index >= slides.length) {
+                    // 全スライド変換完了
+                    pdf.save(`slides_${new Date().toISOString().replace(/[:.]/g, '')}.pdf`);
+                    hideLoading();
+                    showStatus('PDFに変換しました', 'success');
+                    return;
+                }
+
+                // 各スライドを非同期に変換
+                html2canvas(slides[index], {
+                    scale: 2,
+                    useCORS: true,
+                    allowTaint: true
+                }).then(canvas => {
+                    const imgData = canvas.toDataURL('image/png');
+                    const imgProps = pdf.getImageProperties(imgData);
+                    const pdfWidth = pdf.internal.pageSize.getWidth();
+                    const pdfHeight = (imgProps.height * pdfWidth) / imgProps.width;
+
+                    if (index > 0) pdf.addPage();
+                    pdf.addImage(imgData, 'PNG', 0, 0, pdfWidth, pdfHeight);
+
+                    // 次のスライドへ
+                    convertSlide(index + 1);
+                }).catch(error => {
+                    console.error('スライド変換エラー:', error);
+                    hideLoading();
+                    showStatus('PDF変換中にエラーが発生しました', 'error');
+                });
+            }
+
+            // 最初のスライドから開始
+            convertSlide(0);
         }
 
         // PNG変換
         function convertToPng() {
-            loadScript('https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js')
-            .then(() => {
-                const slides = document.querySelectorAll('.slide');
-                const zip = new JSZip();
+            // 一時的なDOMを作成
+            const tempDiv = document.createElement('div');
+            tempDiv.innerHTML = fileContent;
+            const slides = tempDiv.querySelectorAll('.slide');
 
-                slides.forEach((slide, index) => {
-                    html2canvas(slide).then(canvas => {
-                        // スライドをPNGに変換
-                        const imgData = canvas.toDataURL('image/png');
-                        const blob = dataURItoBlob(imgData);
-                        zip.file(`slide_${index + 1}.png`, blob);
+            if (slides.length === 0) {
+                slides = [tempDiv.body]; // スライドがない場合は全体を使用
+            }
 
-                        // 最後のスライドで一括ダウンロード
-                        if (index === slides.length - 1) {
-                            zip.generateAsync({type:"blob"}).then(function(content) {
-                                const link = document.createElement('a');
-                                link.href = URL.createObjectURL(content);
-                                link.download = `slides_${new Date().toISOString().replace(/[:.]/g, '')}.zip`;
-                                link.click();
-                                showStatus('スライドをPNGに変換しました', 'success');
-                            });
-                        }
+            const zip = new JSZip();
+
+            // 再帰的にスライドをPNGに変換
+            function convertSlide(index) {
+                if (index >= slides.length) {
+                    // 全スライド変換完了
+                    zip.generateAsync({type:"blob"}).then(function(content) {
+                        const link = document.createElement('a');
+                        link.href = URL.createObjectURL(content);
+                        link.download = `slides_${new Date().toISOString().replace(/[:.]/g, '')}.zip`;
+                        link.click();
+                        hideLoading();
+                        showStatus('スライドをPNGに変換しました', 'success');
+                    }).catch(error => {
+                        console.error('ZIP生成エラー:', error);
+                        hideLoading();
+                        showStatus('PNG変換中にエラーが発生しました', 'error');
                     });
+                    return;
+                }
+
+                // 各スライドを非同期に変換
+                html2canvas(slides[index], {
+                    scale: 2,
+                    useCORS: true,
+                    allowTaint: true
+                }).then(canvas => {
+                    // スライドをデータURLに変換
+                    const imgData = canvas.toDataURL('image/png');
+                    
+                    // base64データを取得
+                    const base64Data = imgData.split(',')[1];
+                    
+                    // ZIPに追加
+                    zip.file(`slide_${index + 1}.png`, base64Data, {base64: true});
+
+                    // 次のスライドへ
+                    convertSlide(index + 1);
+                }).catch(error => {
+                    console.error('スライド変換エラー:', error);
+                    hideLoading();
+                    showStatus('PNG変換中にエラーが発生しました', 'error');
                 });
-            }).catch(error => {
-                showStatus('PNG変換に失敗しました', 'error');
-            });
+            }
+
+            // 最初のスライドから開始
+            convertSlide(0);
         }
 
         // スライド形式を維持
@@ -335,30 +424,8 @@
             link.href = URL.createObjectURL(blob);
             link.download = `slides_${new Date().toISOString().replace(/[:.]/g, '')}.html`;
             link.click();
+            hideLoading();
             showStatus('スライド形式を保持しました', 'success');
-        }
-
-        // データURIをBlobに変換
-        function dataURItoBlob(dataURI) {
-            const byteString = atob(dataURI.split(',')[1]);
-            const mimeString = dataURI.split(',')[0].split(':')[1].split(';')[0];
-            const ab = new ArrayBuffer(byteString.length);
-            const ia = new Uint8Array(ab);
-            for (let i = 0; i < byteString.length; i++) {
-                ia[i] = byteString.charCodeAt(i);
-            }
-            return new Blob([ab], {type: mimeString});
-        }
-
-        // スクリプトを動的に読み込む関数
-        function loadScript(url) {
-            return new Promise((resolve, reject) => {
-                const script = document.createElement('script');
-                script.src = url;
-                script.onload = resolve;
-                script.onerror = reject;
-                document.head.appendChild(script);
-            });
         }
 
         // ステータスメッセージ表示
@@ -366,9 +433,4 @@
             statusMessage.textContent = message;
             statusMessage.className = type;
         }
-
-        // 追加のライブラリを読み込む
-        loadScript('https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js');
-    </script>
-</body>
-</html>
+        
