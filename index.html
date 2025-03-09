@@ -551,6 +551,395 @@ function calculateDisplaySize(width, height) {
     return { displayWidth, displayHeight };
 }
 
+// Enhanced conversion with clear status tracking and parallel processing
+async function convertAndDownload() {
+    const htmlPreview = document.getElementById('html-preview');
+    const iframe = htmlPreview.querySelector('iframe');
+    const fileInput = document.getElementById('html-file');
+    const isSvgFile = fileInput.files.length > 0 && 
+                      fileInput.files[0].name.toLowerCase().endsWith('.svg');
+    
+    // Get output size
+    const outputSize = outputSizes[window.selectedSize];
+    
+    // Check if preview is empty
+    if (htmlPreview.innerHTML.trim() === '') {
+        updateStatus('Error: No preview loaded.', 'error');
+        return;
+    }
+    
+    // Add progress container
+    const statusMessage = document.getElementById('status-message');
+    const progressContainer = createProgressBar();
+    
+    // SVG file handling
+    if (isSvgFile) {
+        const svgElement = htmlPreview.querySelector('svg');
+        if (svgElement) {
+            updateStatus('Converting SVG...', 'info', true);
+            statusMessage.appendChild(progressContainer);
+            updateProgress(0, 100);
+            
+            try {
+                await handleSvgConversion(svgElement);
+                updateProgress(100, 100);
+                updateStatus(`SVG successfully converted to ${selectedFormat.toUpperCase()}!`, 'success');
+            } catch (error) {
+                console.error('SVG conversion error:', error);
+                updateStatus(`Error converting SVG: ${error.message}`, 'error');
+            }
+            return;
+        }
+    }
+    
+    // HTML file handling
+    updateStatus('Beginning conversion...', 'info', true);
+    statusMessage.appendChild(progressContainer);
+    updateProgress(10, 100);
+    
+    try {
+        if (!iframe && !isSvgFile) {
+            throw new Error('Preview frame not found');
+        }
+        
+        // Process pages or slides
+        const frameDoc = iframe.contentDocument || iframe.contentWindow.document;
+        const pageSelection = document.querySelector('input[name="page-selection"]:checked').value;
+        const selectedPageNumber = parseInt(document.getElementById('page-number').value) || 1;
+        const pages = getPages(frameDoc);
+        
+        // Single page case
+        if (pages.length === 0) {
+            updateStatus('Converting single page...', 'info', true);
+            updateProgress(20, 100);
+            await convertSinglePage(iframe);
+            updateProgress(100, 100);
+            return;
+        }
+        
+        // Multiple pages case
+        if (pageSelection === 'all') {
+            // Convert all pages
+            updateStatus(`Converting all ${pages.length} pages...`, 'info', true);
+            updateProgress(20, 100);
+            
+            if (selectedFormat === 'pdf') {
+                await createMultiPagePdf(iframe, pages);
+            } else {
+                await createMultipleFiles(iframe, pages);
+            }
+        } else {
+            // Convert selected page only
+            if (selectedPageNumber <= pages.length) {
+                // Hide other pages
+                pages.forEach((page, index) => {
+                    if (index + 1 === selectedPageNumber) {
+                        page.style.display = 'block';
+                        page.style.opacity = '1';
+                        page.style.position = 'relative';
+                        page.style.zIndex = '2';
+                    } else {
+                        page.style.display = 'none';
+                        page.style.opacity = '0';
+                        page.style.position = 'absolute';
+                        page.style.zIndex = '1';
+                    }
+                });
+                
+                updateStatus(`Converting page ${selectedPageNumber}...`, 'info', true);
+                updateProgress(20, 100);
+                await convertSinglePage(iframe);
+                updateProgress(100, 100);
+            } else {
+                updateStatus(`Error: Page number ${selectedPageNumber} is out of range.`, 'error');
+            }
+        }
+    } catch (error) {
+        console.error('Conversion error:', error);
+        updateStatus(`Conversion error: ${error.message}`, 'error');
+    }
+}
+
+// Convert single page with improved progress tracking and optimization
+async function convertSinglePage(iframe) {
+    const frameDoc = iframe.contentDocument || iframe.contentWindow.document;
+    const frameBody = frameDoc.body;
+    const outputSize = outputSizes[window.selectedSize];
+    
+    // Slide format special handling
+    if (window.isSlideFormat) {
+        const slides = getPages(frameDoc);
+        let visibleSlide = null;
+        
+        for (const slide of slides) {
+            if (window.getComputedStyle(slide).display !== 'none' && 
+                parseFloat(window.getComputedStyle(slide).opacity) > 0) {
+                visibleSlide = slide;
+                break;
+            }
+        }
+        
+        if (visibleSlide) {
+            if (selectedFormat === 'svg') {
+                updateStatus('Converting slide to SVG...', 'info', true);
+                updateProgress(30, 100);
+                await convertToSVG(visibleSlide);
+                updateProgress(100, 100);
+            } else {
+                updateStatus('Rendering slide...', 'info', true);
+                updateProgress(30, 100);
+                
+                const canvasOptions = {
+                    scale: 2,
+                    useCORS: true,
+                    allowTaint: true,
+                    backgroundColor: window.getComputedStyle(frameBody).backgroundColor || '#FFFFFF',
+                    logging: false,
+                    width: outputSize.width,
+                    height: outputSize.height
+                };
+                
+                updateProgress(50, 100);
+                
+                try {
+                    const canvas = await html2canvas(visibleSlide, canvasOptions);
+                    updateProgress(80, 100);
+                    
+                    if (selectedFormat === 'jpg') {
+                        // Download as JPG
+                        const link = document.createElement('a');
+                        link.download = getFileName('jpg');
+                        link.href = canvas.toDataURL('image/jpeg', outputQuality);
+                        link.click();
+                        
+                        updateStatus('JPG file downloaded successfully!', 'success');
+                    } else {
+                        // Download as PDF
+                        updateProgress(90, 100);
+                        const pdf = new jsPDF({
+                            orientation: outputSize.height > outputSize.width ? 'portrait' : 'landscape',
+                            unit: 'px',
+                            format: [outputSize.width, outputSize.height],
+                            compress: true,
+                            hotfixes: ['px_scaling']
+                        });
+                        
+                        pdf.addImage(
+                            canvas.toDataURL('image/jpeg', 1.0),
+                            'JPEG',
+                            0,
+                            0,
+                            outputSize.width,
+                            outputSize.height,
+                            undefined,
+                            'FAST'
+                        );
+                        
+                        pdf.save(getFileName('pdf'));
+                        
+                        updateStatus('PDF file downloaded successfully!', 'success');
+                    }
+                    
+                    updateProgress(100, 100);
+                } catch (error) {
+                    console.error('HTML2Canvas error:', error);
+                    updateStatus('Error during conversion. Please check the slide content.', 'error');
+                    throw error;
+                }
+            }
+            return;
+        }
+    }
+    
+    // Regular HTML processing
+    if (selectedFormat === 'svg') {
+        updateStatus('Converting to SVG...', 'info', true);
+        updateProgress(30, 100);
+        await convertToSVG(frameDoc.documentElement);
+        updateProgress(100, 100);
+    } else {
+        updateStatus('Rendering content...', 'info', true);
+        updateProgress(30, 100);
+        
+        const canvasOptions = {
+            scale: 2,
+            useCORS: true,
+            allowTaint: true,
+            backgroundColor: window.getComputedStyle(frameBody).backgroundColor || '#FFFFFF',
+            logging: false,
+            width: outputSize.width,
+            height: outputSize.height,
+            windowWidth: outputSize.width,
+            windowHeight: outputSize.height,
+            foreignObjectRendering: true,
+            scrollX: 0,
+            scrollY: 0
+        };
+        
+        try {
+            updateProgress(50, 100);
+            const canvas = await html2canvas(frameDoc.documentElement, canvasOptions);
+            updateProgress(80, 100);
+            
+            if (selectedFormat === 'jpg') {
+                // Download as JPG
+                const link = document.createElement('a');
+                link.download = getFileName('jpg');
+                link.href = canvas.toDataURL('image/jpeg', outputQuality);
+                link.click();
+                
+                updateStatus('JPG file downloaded successfully!', 'success');
+            } else {
+                // Download as PDF
+                updateProgress(90, 100);
+                const pdf = new jsPDF({
+                    orientation: outputSize.height > outputSize.width ? 'portrait' : 'landscape',
+                    unit: 'px',
+                    format: [outputSize.width, outputSize.height],
+                    compress: true,
+                    hotfixes: ['px_scaling']
+                });
+                
+                pdf.addImage(
+                    canvas.toDataURL('image/jpeg', 1.0),
+                    'JPEG',
+                    0,
+                    0,
+                    outputSize.width,
+                    outputSize.height,
+                    undefined,
+                    'FAST'
+                );
+                
+                pdf.save(getFileName('pdf'));
+                
+                updateStatus('PDF file downloaded successfully!', 'success');
+            }
+            
+            updateProgress(100, 100);
+        } catch (error) {
+            console.error('Rendering error:', error);
+            updateStatus('Error during conversion. Please check the content.', 'error');
+            throw error;
+        }
+    }
+}
+
+// SVG to various formats with enhanced progress tracking
+async function handleSvgConversion(svgElement) {
+    return new Promise(async (resolve, reject) => {
+        try {
+            updateProgress(20, 100);
+            
+            // Get SVG content
+            const serializer = new XMLSerializer();
+            let svgContent = '<?xml version="1.0" encoding="UTF-8" standalone="no"?>\n';
+            
+            // Clone and resize SVG
+            const outputSize = outputSizes[window.selectedSize];
+            const svgClone = svgElement.cloneNode(true);
+            svgClone.setAttribute('width', outputSize.width);
+            svgClone.setAttribute('height', outputSize.height);
+            svgClone.setAttribute('viewBox', `0 0 ${outputSize.width} ${outputSize.height}`);
+            
+            svgContent += serializer.serializeToString(svgClone);
+            
+            updateProgress(40, 100);
+            
+            if (selectedFormat === 'svg') {
+                // Save as SVG
+                const blob = new Blob([svgContent], {type: 'image/svg+xml;charset=utf-8'});
+                saveAs(blob, getFileName('svg'));
+                
+                updateStatus('SVG file downloaded successfully!', 'success');
+                updateProgress(100, 100);
+                resolve();
+            } else {
+                // Convert to other formats
+                updateProgress(50, 100);
+                const img = new Image();
+                
+                img.onload = function() {
+                    try {
+                        updateProgress(70, 100);
+                        
+                        const canvas = document.createElement('canvas');
+                        canvas.width = outputSize.width;
+                        canvas.height = outputSize.height;
+                        
+                        const ctx = canvas.getContext('2d');
+                        ctx.fillStyle = 'white';
+                        ctx.fillRect(0, 0, canvas.width, canvas.height);
+                        ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+                        
+                        updateProgress(80, 100);
+                        
+                        if (selectedFormat === 'jpg') {
+                            // Save as JPG
+                            const link = document.createElement('a');
+                            link.download = getFileName('jpg');
+                            link.href = canvas.toDataURL('image/jpeg', outputQuality);
+                            link.click();
+                            
+                            updateStatus('JPG file downloaded successfully!', 'success');
+                        } else {
+                            // Save as PDF
+                            updateProgress(90, 100);
+                            const pdf = new jsPDF({
+                                orientation: outputSize.height > outputSize.width ? 'portrait' : 'landscape',
+                                unit: 'px',
+                                format: [outputSize.width, outputSize.height],
+                                compress: true
+                            });
+                            
+                            pdf.addImage(
+                                canvas.toDataURL('image/jpeg', 1.0),
+                                '
+                canvas.toDataURL('image/jpeg', 1.0),
+                                'JPEG',
+                                0,
+                                0,
+                                outputSize.width,
+                                outputSize.height
+                            );
+                            
+                            pdf.save(getFileName('pdf'));
+                            
+                            updateStatus('PDF file downloaded successfully!', 'success');
+                        }
+                        
+                        updateProgress(100, 100);
+                        resolve();
+                        
+                        // Clean up
+                        URL.revokeObjectURL(img.src);
+                    } catch (error) {
+                        console.error('SVG conversion error:', error);
+                        updateStatus('SVG conversion failed.', 'error');
+                        reject(error);
+                    }
+                };
+                
+                img.onerror = function(error) {
+                    console.error('Image loading error:', error);
+                    updateStatus('Failed to process SVG.', 'error');
+                    URL.revokeObjectURL(img.src);
+                    reject(new Error('Image loading failed'));
+                };
+                
+                // Use object URL for better performance
+                const svgBlob = new Blob([svgContent], {type: 'image/svg+xml;charset=utf-8'});
+                const url = URL.createObjectURL(svgBlob);
+                img.src = url;
+            }
+        } catch (error) {
+            console.error('SVG conversion error:', error);
+            updateStatus('SVG conversion failed.', 'error');
+            reject(error);
+        }
+    });
+}
+
 // Convert to SVG format with optimizations
 async function convertToSVG(element) {
     updateStatus('Converting to SVG format...', 'info', true);
@@ -938,7 +1327,7 @@ function replaceUploadedImageReferences(content) {
     let modifiedContent = content;
     
     Object.keys(window.uploadedImages).forEach(filename => {
-        const escapedFilename = filename.replace(/[.*+?^${}()|[\]\\]/g, '\\// Enhanced conversion with clear status tracking and parallel processing');
+        const escapedFilename = filename.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
         const patterns = [
             new RegExp(`src=["'][^"']*/${escapedFilename}["']`, 'gi'),
             new RegExp(`src=["']${escapedFilename}["']`, 'gi')
@@ -963,358 +1352,54 @@ function updateQualityValue() {
         outputQuality = value / 100;
     }
 }
-
-// Enhanced conversion with clear status tracking and parallel processing
-async function convertAndDownload() {
-    const htmlPreview = document.getElementById('html-preview');
-    const iframe = htmlPreview.querySelector('iframe');
-    const fileInput = document.getElementById('html-file');
-    const isSvgFile = fileInput.files.length > 0 && 
-                      fileInput.files[0].name.toLowerCase().endsWith('.svg');
-    
-    // Get output size
-    const outputSize = outputSizes[window.selectedSize];
-    
-    // Check if preview is empty
-    if (htmlPreview.innerHTML.trim() === '') {
-        updateStatus('Error: No preview loaded.', 'error');
-        return;
-    }
-    
-    // Add progress container
-    const statusMessage = document.getElementById('status-message');
-    const progressContainer = createProgressBar();
-    
-    // SVG file handling
-    if (isSvgFile) {
-        const svgElement = htmlPreview.querySelector('svg');
-        if (svgElement) {
-            updateStatus('Converting SVG...', 'info', true);
-            statusMessage.appendChild(progressContainer);
-            updateProgress(0, 100);
-            
-            try {
-                await handleSvgConversion(svgElement);
-                updateProgress(100, 100);
-                updateStatus(`SVG successfully converted to ${selectedFormat.toUpperCase()}!`, 'success');
-            } catch (error) {
-                console.error('SVG conversion error:', error);
-                updateStatus(`Error converting SVG: ${error.message}`, 'error');
-            }
-            return;
-        }
-    }
-    
-    // HTML file handling
-    updateStatus('Beginning conversion...', 'info', true);
-    statusMessage.appendChild(progressContainer);
-    updateProgress(10, 100);
-    
-    try {
-        if (!iframe && !isSvgFile) {
-            throw new Error('Preview frame not found');
-        }
-        
-        // Process pages or slides
-        const frameDoc = iframe.contentDocument || iframe.contentWindow.document;
-        const pageSelection = document.querySelector('input[name="page-selection"]:checked').value;
-        const selectedPageNumber = parseInt(document.getElementById('page-number').value) || 1;
-        const pages = getPages(frameDoc);
-        
-        // Single page case
-        if (pages.length === 0) {
-            updateStatus('Converting single page...', 'info', true);
-            updateProgress(20, 100);
-            await convertSinglePage(iframe);
-            updateProgress(100, 100);
-            return;
-        }
-        
-        // Multiple pages case
-        if (pageSelection === 'all') {
-            // Convert all pages
-            updateStatus(`Converting all ${pages.length} pages...`, 'info', true);
-            updateProgress(20, 100);
-            
-            if (selectedFormat === 'pdf') {
-                await createMultiPagePdf(iframe, pages);
-            } else {
-                await createMultipleFiles(iframe, pages);
-            }
-        } else {
-            // Convert selected page only
-            if (selectedPageNumber <= pages.length) {
-                // Hide other pages
-                pages.forEach((page, index) => {
-                    if (index + 1 === selectedPageNumber) {
-                        page.style.display = 'block';
-                        page.style.opacity = '1';
-                        page.style.position = 'relative';
-                        page.style.zIndex = '2';
-                    } else {
-                        page.style.display = 'none';
-                        page.style.opacity = '0';
-                        page.style.position = 'absolute';
-                        page.style.zIndex = '1';
-                    }
-                });
-                
-                updateStatus(`Converting page ${selectedPageNumber}...`, 'info', true);
-                updateProgress(20, 100);
-                await convertSinglePage(iframe);
-                updateProgress(100, 100);
-            } else {
-                updateStatus(`Error: Page number ${selectedPageNumber} is out of range.`, 'error');
-            }
-        }
-    } catch (error) {
-        console.error('Conversion error:', error);
-        updateStatus(`Conversion error: ${error.message}`, 'error');
-    }
+ /* Progress bar styling */
+#progress-container {
+    width: 100%;
+    height: 8px;
+    background-color: var(--gray-light);
+    border-radius: 4px;
+    margin-top: 10px;
+    overflow: hidden;
 }
 
-// Convert single page with improved progress tracking and optimization
-async function convertSinglePage(iframe) {
-    const frameDoc = iframe.contentDocument || iframe.contentWindow.document;
-    const frameBody = frameDoc.body;
-    const outputSize = outputSizes[window.selectedSize];
-    
-    // Slide format special handling
-    if (window.isSlideFormat) {
-        const slides = getPages(frameDoc);
-        let visibleSlide = null;
-        
-        for (const slide of slides) {
-            if (window.getComputedStyle(slide).display !== 'none' && 
-                parseFloat(window.getComputedStyle(slide).opacity) > 0) {
-                visibleSlide = slide;
-                break;
-            }
-        }
-        
-        if (visibleSlide) {
-            if (selectedFormat === 'svg') {
-                updateStatus('Converting slide to SVG...', 'info', true);
-                updateProgress(30, 100);
-                await convertToSVG(visibleSlide);
-                updateProgress(100, 100);
-            } else {
-                updateStatus('Rendering slide...', 'info', true);
-                updateProgress(30, 100);
-                
-                const canvasOptions = {
-                    scale: 2,
-                    useCORS: true,
-                    allowTaint: true,
-                    backgroundColor: window.getComputedStyle(frameBody).backgroundColor || '#FFFFFF',
-                    logging: false,
-                    width: outputSize.width,
-                    height: outputSize.height
-                };
-                
-                updateProgress(50, 100);
-                
-                try {
-                    const canvas = await html2canvas(visibleSlide, canvasOptions);
-                    updateProgress(80, 100);
-                    
-                    if (selectedFormat === 'jpg') {
-                        // Download as JPG
-                        const link = document.createElement('a');
-                        link.download = getFileName('jpg');
-                        link.href = canvas.toDataURL('image/jpeg', outputQuality);
-                        link.click();
-                        
-                        updateStatus('JPG file downloaded successfully!', 'success');
-                    } else {
-                        // Download as PDF
-                        updateProgress(90, 100);
-                        const pdf = new jsPDF({
-                            orientation: outputSize.height > outputSize.width ? 'portrait' : 'landscape',
-                            unit: 'px',
-                            format: [outputSize.width, outputSize.height],
-                            compress: true,
-                            hotfixes: ['px_scaling']
-                        });
-                        
-                        pdf.addImage(
-                            canvas.toDataURL('image/jpeg', 1.0),
-                            'JPEG',
-                            0,
-                            0,
-                            outputSize.width,
-                            outputSize.height,
-                            undefined,
-                            'FAST'
-                        );
-                        
-                        pdf.save(getFileName('pdf'));
-                        
-                        updateStatus('PDF file downloaded successfully!', 'success');
-                    }
-                    
-                    updateProgress(100, 100);
-                } catch (error) {
-                    console.error('HTML2Canvas error:', error);
-                    updateStatus('Error during conversion. Please check the slide content.', 'error');
-                    throw error;
-                }
-            }
-            return;
-        }
-    }
-    
-    // Regular HTML processing
-    if (selectedFormat === 'svg') {
-        updateStatus('Converting to SVG...', 'info', true);
-        updateProgress(30, 100);
-        await convertToSVG(frameDoc.documentElement);
-        updateProgress(100, 100);
-    } else {
-        updateStatus('Rendering content...', 'info', true);
-        updateProgress(30, 100);
-        
-        const canvasOptions = {
-            scale: 2,
-            useCORS: true,
-            allowTaint: true,
-            backgroundColor: window.getComputedStyle(frameBody).backgroundColor || '#FFFFFF',
-            logging: false,
-            width: outputSize.width,
-            height: outputSize.height,
-            windowWidth: outputSize.width,
-            windowHeight: outputSize.height,
-            foreignObjectRendering: true,
-            scrollX: 0,
-            scrollY: 0
-        };
-        
-        try {
-            updateProgress(50, 100);
-            const canvas = await html2canvas(frameDoc.documentElement, canvasOptions);
-            updateProgress(80, 100);
-            
-            if (selectedFormat === 'jpg') {
-                // Download as JPG
-                const link = document.createElement('a');
-                link.download = getFileName('jpg');
-                link.href = canvas.toDataURL('image/jpeg', outputQuality);
-                link.click();
-                
-                updateStatus('JPG file downloaded successfully!', 'success');
-            } else {
-                // Download as PDF
-                updateProgress(90, 100);
-                const pdf = new jsPDF({
-                    orientation: outputSize.height > outputSize.width ? 'portrait' : 'landscape',
-                    unit: 'px',
-                    format: [outputSize.width, outputSize.height],
-                    compress: true,
-                    hotfixes: ['px_scaling']
-                });
-                
-                pdf.addImage(
-                    canvas.toDataURL('image/jpeg', 1.0),
-                    'JPEG',
-                    0,
-                    0,
-                    outputSize.width,
-                    outputSize.height,
-                    undefined,
-                    'FAST'
-                );
-                
-                pdf.save(getFileName('pdf'));
-                
-                updateStatus('PDF file downloaded successfully!', 'success');
-            }
-            
-            updateProgress(100, 100);
-        } catch (error) {
-            console.error('Rendering error:', error);
-            updateStatus('Error during conversion. Please check the content.', 'error');
-            throw error;
-        }
-    }
+#progress-bar {
+    width: 0%;
+    height: 100%;
+    background-color: var(--primary);
+    transition: width 0.3s ease;
 }
 
-// SVG to various formats with enhanced progress tracking
-async function handleSvgConversion(svgElement) {
-    return new Promise(async (resolve, reject) => {
-        try {
-            updateProgress(20, 100);
-            
-            // Get SVG content
-            const serializer = new XMLSerializer();
-            let svgContent = '<?xml version="1.0" encoding="UTF-8" standalone="no"?>\n';
-            
-            // Clone and resize SVG
-            const outputSize = outputSizes[window.selectedSize];
-            const svgClone = svgElement.cloneNode(true);
-            svgClone.setAttribute('width', outputSize.width);
-            svgClone.setAttribute('height', outputSize.height);
-            svgClone.setAttribute('viewBox', `0 0 ${outputSize.width} ${outputSize.height}`);
-            
-            svgContent += serializer.serializeToString(svgClone);
-            
-            updateProgress(40, 100);
-            
-            if (selectedFormat === 'svg') {
-                // Save as SVG
-                const blob = new Blob([svgContent], {type: 'image/svg+xml;charset=utf-8'});
-                saveAs(blob, getFileName('svg'));
-                
-                updateStatus('SVG file downloaded successfully!', 'success');
-                updateProgress(100, 100);
-                resolve();
-            } else {
-                // Convert to other formats
-                updateProgress(50, 100);
-                const img = new Image();
-                
-                img.onload = function() {
-                    try {
-                        updateProgress(70, 100);
-                        
-                        const canvas = document.createElement('canvas');
-                        canvas.width = outputSize.width;
-                        canvas.height = outputSize.height;
-                        
-                        const ctx = canvas.getContext('2d');
-                        ctx.fillStyle = 'white';
-                        ctx.fillRect(0, 0, canvas.width, canvas.height);
-                        ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
-                        
-                        updateProgress(80, 100);
-                        
-                        if (selectedFormat === 'jpg') {
-                            // Save as JPG
-                            const link = document.createElement('a');
-                            link.download = getFileName('jpg');
-                            link.href = canvas.toDataURL('image/jpeg', outputQuality);
-                            link.click();
-                            
-                            updateStatus('JPG file downloaded successfully!', 'success');
-                        } else {
-                            // Save as PDF
-                            updateProgress(90, 100);
-                            const pdf = new jsPDF({
-                                orientation: outputSize.height > outputSize.width ? 'portrait' : 'landscape',
-                                unit: 'px',
-                                format: [outputSize.width, outputSize.height],
-                                compress: true
-                            });
-                            
-                            pdf.addImage(
-                                canvas.toDataURL('image/jpeg', 1.0),
-                                'JPEG',
-                                0,
-                                0,
-                                outputSize.width,
-                                outputSize.height
-                            );
-                            
-                            pdf.save(getFileName('pdf'));
-                            
-                            updateStatus('PDF file downloaded successfully!', 'success');
-                        }
+/* Status message enhancements */
+#status-message {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 12px;
+    border-radius: var(--radius);
+    margin: 15px 0;
+    transition: all 0.3s ease;
+}
+
+#status-message.info {
+    background-color: rgba(99, 102, 241, 0.1);
+    color: var(--primary);
+    border-left: 4px solid var(--primary);
+}
+
+#status-message.success {
+    background-color: rgba(16, 185, 129, 0.1);
+    color: var(--success);
+    border-left: 4px solid var(--success);
+}
+
+#status-message.warning {
+    background-color: rgba(245, 158, 11, 0.1);
+    color: var(--warning);
+    border-left: 4px solid var(--warning);
+}
+
+#status-message.error {
+    background-color: rgba(239, 68, 68, 0.1);
+    color: var(--error);
+    border-left: 4px solid var(--error);
+}           
