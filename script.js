@@ -1,380 +1,43 @@
-// グローバル変数の初期化
-window.selectedSize = 'a4'; // デフォルトサイズ
-let selectedFormat = 'pdf'; // デフォルト出力形式
-let outputQuality = 0.8; // デフォルト品質
-let htmlContent = ''; // HTML内容の保存用
-window.isSlideFormat = false; // スライド形式フラグ
-window.freezeAnimations = false; // アニメーション停止フラグ
-
-// 出力サイズの定義
-const outputSizes = {
-    'a4': { width: 595, height: 842 },
-    'letter': { width: 612, height: 792 },
-    'custom': { width: 800, height: 600 }
-};
-
-// 画像キャッシュの初期化
-const imageCache = new Map();
-
-// UI要素のスタイル更新関数
-function updateButtonStyles(selector, activeButton) {
-    document.querySelectorAll(selector).forEach(btn => {
-        btn.classList.remove('bg-blue-500', 'text-white');
-        btn.classList.add('bg-white', 'text-gray-700', 'border', 'border-gray-300');
-    });
-    
-    activeButton.classList.remove('bg-white', 'text-gray-700', 'border', 'border-gray-300');
-    activeButton.classList.add('bg-blue-500', 'text-white');
+// ページオプションの表示
+if (hasMultiplePages) {
+    pageOptions.style.display = 'block';
+} else {
+    pageOptions.style.display = 'none';
 }
 
-// サイズ選択関数
-function selectSize(size) {
-    window.selectedSize = size;
-    const button = document.getElementById(`size-${size}`);
-    updateButtonStyles('.size-button', button);
-}
+// 変換時間の推定
+function estimateConversionTime(totalPages, format) {
+    // ページ数と形式に基づいて変換時間を推定
+    const baseTime = 1; // 初期処理の基本時間
+    let timePerPage = 0;
 
-// 形式選択関数
-function selectFormat(format) {
-    selectedFormat = format;
-    const button = document.getElementById(`format-${format}`);
-    updateButtonStyles('.format-button', button);
-    
-    // 品質スライダーの表示切り替え
-    const qualityOptions = document.getElementById('quality-options');
-    qualityOptions.style.display = format === 'jpg' ? 'block' : 'none';
-}
-
-// ステータスメッセージの更新
-function updateStatus(message, type = 'info', showSpinner = false) {
-    const statusMessage = document.getElementById('status-message');
-    statusMessage.innerHTML = '';
-    
-    // クラスをリセット
-    statusMessage.className = 'mt-4 p-3 rounded-lg text-center';
-    
-    // タイプに応じたスタイル
-    const typeStyles = {
-        'info': 'bg-blue-50 text-blue-700',
-        'success': 'bg-green-50 text-green-700',
-        'warning': 'bg-yellow-50 text-yellow-700',
-        'error': 'bg-red-50 text-red-700'
-    };
-    
-    statusMessage.classList.add(typeStyles[type] || typeStyles['info']);
-    
-    if (showSpinner) {
-        const spinner = document.createElement('div');
-        spinner.className = 'animate-spin inline-block w-5 h-5 border-4 border-blue-500 border-t-transparent rounded-full mr-2';
-        statusMessage.appendChild(spinner);
+    switch(format) {
+        case 'pdf':
+            timePerPage = 0.5; // PDFは比較的軽い
+            break;
+        case 'jpg':
+            timePerPage = 1; // JPGは少し重い
+            break;
+        case 'svg':
+            timePerPage = 0.3; // SVGは最も軽い
+            break;
+        default:
+            timePerPage = 0.5;
     }
-    
-    // メッセージテキスト
-    const messageSpan = document.createElement('span');
-    messageSpan.textContent = message;
-    statusMessage.appendChild(messageSpan);
-}
 
-// プログレスバーの作成
-function createProgressBar() {
-    const progressContainer = document.createElement('div');
-    progressContainer.className = 'w-full h-2 bg-gray-200 rounded-full overflow-hidden mt-2';
+    // 処理時間を計算
+    const totalTime = baseTime + (totalPages * timePerPage);
     
-    const progressBar = document.createElement('div');
-    progressBar.id = 'progress-bar';
-    progressBar.className = 'h-full bg-blue-500 transition-all duration-300 ease-in-out';
-    progressBar.style.width = '0%';
-    
-    progressContainer.appendChild(progressBar);
-    return progressContainer;
-}
-
-// プログレスバーの更新
-function updateProgress(current, total) {
-    const progressBar = document.getElementById('progress-bar');
-    if (progressBar) {
-        const percentage = Math.round((current / total) * 100);
-        progressBar.style.width = `${percentage}%`;
-    }
-}
-
-// 画像処理関数（以前のコードと同様）
-async function processImage(img, originalSrc) {
-    // 前のコードと同じ実装
-    // ...
-}
-
-// ファイルアップロード処理
-async function handleFileUpload() {
-    const fileInput = document.getElementById('html-file');
-    const fileNameDisplay = document.getElementById('file-name');
-    const previewBtn = document.getElementById('preview-btn');
-    const sizeInfo = document.getElementById('size-info');
-    
-    // サイズ情報のクリア
-    sizeInfo.textContent = '';
-    window.originalWidth = null;
-    window.originalHeight = null;
-    
-    if (fileInput.files.length === 0) {
-        fileNameDisplay.textContent = '';
-        previewBtn.disabled = true;
-        return;
-    }
-    
-    const file = fileInput.files[0];
-    fileNameDisplay.textContent = file.name;
-    updateStatus('ファイルを読み込んでいます...', 'info', true);
-    
-    // ファイル拡張子の取得
-    const fileExt = file.name.split('.').pop().toLowerCase();
-    
-    try {
-        if (fileExt === 'svg') {
-            // SVGファイルの処理
-            const content = await readFileAsText(file);
-            htmlContent = content;
-            
-            // SVGの寸法を抽出
-            const tempDiv = document.createElement('div');
-            tempDiv.innerHTML = content;
-            const svgElement = tempDiv.querySelector('svg');
-            
-            if (svgElement) {
-                extractSvgDimensions(svgElement);
-            }
-            
-            previewBtn.disabled = false;
-            selectFormat('svg');
-            updateStatus('SVGファイルが正常に読み込まれました', 'success');
-            
-        } else if (fileExt === 'html' || fileExt === 'htm') {
-            // HTMLファイルの処理
-            const content = await readFileAsText(file);
-            
-            // アップロードされた画像の参照を置き換え
-            const processedContent = replaceUploadedImageReferences(content);
-            
-            // 画像をプリロード
-            htmlContent = await
-                // 続きの関数群
-
-// ファイルをテキストとして読み込む
-function readFileAsText(file) {
-    return new Promise((resolve, reject) => {
-        const reader = new FileReader();
-        reader.onload = e => resolve(e.target.result);
-        reader.onerror = e => reject(new Error('ファイル読み込みに失敗しました'));
-        reader.readAsText(file);
-    });
-}
-
-// SVGの寸法を抽出
-function extractSvgDimensions(svgElement) {
-    let width = svgElement.getAttribute('width');
-    let height = svgElement.getAttribute('height');
-    let viewBox = svgElement.getAttribute('viewBox');
-    
-    // 幅と高さを数値に変換
-    if (width) {
-        width = parseFloat(width.replace('px', ''));
-        window.originalWidth = width || 800;
-    }
-    
-    if (height) {
-        height = parseFloat(height.replace('px', ''));
-        window.originalHeight = height || 600;
-    }
-    
-    // viewBoxから寸法を取得
-    if (viewBox && (!width || !height)) {
-        const viewBoxValues = viewBox.split(/[\s,]+/);
-        if (viewBoxValues.length >= 4) {
-            if (!window.originalWidth) {
-                window.originalWidth = parseFloat(viewBoxValues[2]);
-            }
-            if (!window.originalHeight) {
-                window.originalHeight = parseFloat(viewBoxValues[3]);
-            }
-        }
-    }
-}
-
-// アップロードされた画像の参照を置き換え
-function replaceUploadedImageReferences(content) {
-    if (!window.uploadedImages || Object.keys(window.uploadedImages).length === 0) {
-        return content;
-    }
-    
-    let modifiedContent = content;
-    
-    Object.keys(window.uploadedImages).forEach(filename => {
-        const escapedFilename = filename.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-        const patterns = [
-            new RegExp(`src=["'][^"']*/${escapedFilename}["']`, 'gi'),
-            new RegExp(`src=["']${escapedFilename}["']`, 'gi')
-        ];
-        
-        patterns.forEach(regex => {
-            modifiedContent = modifiedContent.replace(regex, `src="${window.uploadedImages[filename]}"`);
-        });
-    });
-    
-    return modifiedContent;
-}
-
-// 画像のプリロード
-async function preloadImages(htmlContent) {
-    const tempContainer = document.createElement('div');
-    tempContainer.innerHTML = htmlContent;
-    
-    // 画像要素を取得
-    const images = tempContainer.querySelectorAll('img');
-    const totalImages = images.length;
-    
-    if (totalImages === 0) {
-        return htmlContent;
-    }
-    
-    updateStatus(`画像を読み込んでいます... (0/${totalImages})`, 'info', true);
-    
-    // プログレスバーを追加
-    const statusMessage = document.getElementById('status-message');
-    const progressContainer = createProgressBar();
-    statusMessage.appendChild(progressContainer);
-    
-    // 画像を並列処理
-    const concurrentLimit = navigator.hardwareConcurrency ? Math.min(navigator.hardwareConcurrency, 4) : 2;
-    let processedCount = 0;
-    let failedCount = 0;
-    const imageMap = new Map();
-    
-    // バッチ処理
-    for (let i = 0; i < totalImages; i += concurrentLimit) {
-        const batch = Array.from(images).slice(i, i + concurrentLimit);
-        const promises = batch.map(async (img) => {
-            const originalSrc = img.getAttribute('src');
-            if (!originalSrc || originalSrc.startsWith('data:') || originalSrc.startsWith('blob:')) {
-                return;
-            }
-            
-            try {
-                const dataURL = await processImage(img, originalSrc);
-                imageMap.set(originalSrc, dataURL);
-                processedCount++;
-            } catch (error) {
-                console.warn('画像処理エラー:', error);
-                failedCount++;
-            } finally {
-                // プログレスを更新
-                updateStatus(`画像を読み込んでいます... (${processedCount}/${totalImages})`, 'info', true);
-                updateProgress(processedCount + failedCount, totalImages);
-            }
-        });
-        
-        await Promise.all(promises);
-    }
-    
-    // 画像パスをデータURLに置き換え
-    let processedHTML = htmlContent;
-    imageMap.forEach((dataURL, originalSrc) => {
-        const escapedSrc = originalSrc.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-        const regex = new RegExp(`src=["']${escapedSrc}["']`, 'g');
-        processedHTML = processedHTML.replace(regex, `src="${dataURL}"`);
-    });
-    
-    if (failedCount > 0) {
-        updateStatus(`画像処理完了。(${processedCount}枚読み込み、${failedCount}枚失敗)`, 'warning');
+    // 時間を整形
+    if (totalTime < 1) {
+        return '1秒未満';
+    } else if (totalTime < 60) {
+        return `約${Math.round(totalTime)}秒`;
     } else {
-        updateStatus(`画像処理完了。全${processedCount}枚の画像を読み込みました。`, 'success');
+        const minutes = Math.floor(totalTime / 60);
+        const seconds = Math.round(totalTime % 60);
+        return `約${minutes}分${seconds}秒`;
     }
-    
-    return processedHTML;
-}
-
-// 複数ページの確認
-function checkMultiplePages(content) {
-    // ページセパレーターの正規表現パターン
-    const pageSeparators = [
-        /<div[^>]*class="?page"?[^>]*>/i,
-        /<div[^>]*id="?page[0-9]+"?[^>]*>/i,
-        /<section[^>]*class="?page"?[^>]*>/i,
-        /<article[^>]*class="?page"?[^>]*>/i,
-        /<hr[^>]*class="?page-break"?[^>]*>/i,
-        /<!-- *page-break *-->/i,
-        /<div[^>]*style="[^"]*page-break-before: always[^"]*"[^>]*>/i,
-        /<div[^>]*style="[^"]*page-break-after: always[^"]*"[^>]*>/i
-    ];
-    
-    // スライド形式のパターン
-    const slideSeparators = [
-        /<div[^>]*class="?slide"?[^>]*>/i,
-        /<div[^>]*id="?slide[0-9]+"?[^>]*>/i,
-        /<section[^>]*class="?slide"?[^>]*>/i,
-    ];
-    
-    // スライド形式の確認
-    let isSlideFormat = false;
-    
-    // スライド関連のJavaScriptをチェック
-    if (content.includes('changeSlide') || 
-        content.includes('nextSlide') || 
-        content.includes('prevSlide') ||
-        content.includes('class="slides-container"')) {
-        isSlideFormat = true;
-    }
-    
-    // パターンマッチング関数
-    function countMatches(patterns, text) {
-        for (const pattern of patterns) {
-            if (pattern.test(text)) {
-                const matches = text.match(new RegExp(pattern.source, 'gi'));
-                if (matches && matches.length > 0) {
-                    return matches.length;
-                }
-            }
-        }
-        return 0;
-    }
-    
-    // ページとスライドのチェック
-    let hasMultiplePages = false;
-    let pageCount = 1;
-    let slidesCount = 0;
-    
-    // 標準のページセパレーターをチェック
-    const pageMatches = countMatches(pageSeparators, content);
-    if (pageMatches > 0) {
-        hasMultiplePages = true;
-        pageCount += pageMatches;
-    }
-    
-    // スライドセパレーターをチェック
-    const slideMatches = countMatches(slideSeparators, content);
-    if (slideMatches > 0) {
-        hasMultiplePages = true;
-        isSlideFormat = true;
-        slidesCount = slideMatches;
-        
-        // スライド数が多い場合はそちらを使用
-        if (slidesCount > pageCount - 1) {
-            pageCount = slidesCount;
-        }
-    }
-    
-    // ページ情報を更新
-    const pageInfo = document.getElementById('page-info');
-    if (isSlideFormat) {
-        pageInfo.textContent = `(スライド形式: ${pageCount}ページ検出)`;
-        window.isSlideFormat = true;
-    } else {
-        pageInfo.textContent = hasMultiplePages ? `(${pageCount}ページ検出)` : '';
-        window.isSlideFormat = false;
-    }
-    
-    // ページオプションの表示/非表示
-    document.getElementById('page-options').style.display = 
-        hasMultiplePages ? 'block' : 'none';
 }
 
 // プレビュー生成
@@ -383,8 +46,6 @@ async function renderPreview() {
     const convertBtn = document.getElementById('convert-btn');
     const fileInput = document.getElementById('html-file');
     const sizeInfo = document.getElementById('size-info');
-    
-    updateStatus('プレビューを生成しています...', 'info', true);
     
     // プレビューをクリア
     htmlPreview.innerHTML = '';
@@ -426,65 +87,585 @@ async function renderPreview() {
             
         } else {
             // HTMLファイルの処理
-            await renderHtmlPreview(htmlPreview, htmlContent, outputSize);
+            const iframeContainer = document.createElement('div');
+            iframeContainer.style.width = '100%';
+            iframeContainer.style.height = '100%';
+            
+            const iframe = document.createElement('iframe');
+            iframe.style.width = '100%';
+            iframe.style.height = '100%';
+            iframe.style.border = 'none';
+            
+            htmlPreview.appendChild(iframe);
+            
+            // iframeにコンテンツを書き込む
+            const iframeDoc = iframe.contentDocument || iframe.contentWindow.document;
+            iframeDoc.open();
+            iframeDoc.write(htmlContent);
+            iframeDoc.close();
+            
+            // サイズ情報を表示
             sizeInfo.textContent = `出力サイズ: ${outputSize.width} × ${outputSize.height} px`;
             
             updateStatus('プレビューが正常に生成されました', 'success');
             convertBtn.disabled = false;
         }
+        
+        // 推定変換時間を表示
+        const estimatedTimeEl = document.getElementById('estimated-time');
+        const format = selectedFormat || 'pdf';
+        const pageCount = document.getElementById('page-info').textContent.match(/\d+/)?.[0] || 1;
+        const estimatedTime = estimateConversionTime(parseInt(pageCount), format);
+        
+        estimatedTimeEl.textContent = `推定変換時間: ${estimatedTime}`;
     } catch (error) {
         console.error('プレビュー生成エラー:', error);
         updateStatus(`プレビュー生成エラー: ${error.message}`, 'error');
+        convertBtn.disabled = true;
     }
+}
+
+// 変換処理
+async function convertAndDownload() {
+    const fileInput = document.getElementById('html-file');
+    const fileExt = fileInput.files[0]?.name.split('.').pop().toLowerCase();
+    const outputSize = outputSizes[window.selectedSize];
+    
+    updateStatus('変換処理を開始します...', 'info', true);
+    
+    try {
+        if (fileExt === 'svg') {
+            // SVGファイルの変換
+            await convertSvgFile(htmlContent, outputSize);
+        } else {
+            // HTMLファイルの変換
+            await convertHtmlFile(htmlContent, outputSize);
+        }
+    } catch (error) {
+        console.error('変換エラー:', error);
+        updateStatus(`変換中にエラーが発生しました: ${error.message}`, 'error');
+    }
+}
+
+// SVGファイルの変換
+async function convertSvgFile(svgContent, outputSize) {
+    try {
+        // SVGをCanvasに変換
+        const img = new Image();
+        img.src = `data:image/svg+xml;base64,${btoa(svgContent)}`;
+        
+        await new Promise((resolve, reject) => {
+            img.onload = resolve;
+            img.onerror = reject;
+        });
+        
+        const canvas = document.createElement('canvas');
+        canvas.width = outputSize.width;
+        canvas.height = outputSize.height;
+        
+        const ctx = canvas.getContext('2d');
+        ctx.drawImage(img, 0, 0, outputSize.width, outputSize.height);
+        
+        // 選択した形式で保存
+        switch(selectedFormat) {
+            case 'svg':
+                // そのままSVGとして保存
+                const blob = new Blob([svgContent], {type: 'image/svg+xml'});
+                saveAs(blob, `converted_${new Date().toISOString().replace(/[:.]/g, '')}.svg`);
+                break;
+            case 'jpg':
+                // JPGとして保存
+                const jpgDataUrl = canvas.toDataURL('image/jpeg', outputQuality);
+                const jpgLink = document.createElement('a');
+                jpgLink.href = jpgDataUrl;
+                jpgLink.download = `converted_${new Date().toISOString().replace(/[:.]/g, '')}.jpg`;
+                jpgLink.click();
+                break;
+            case 'pdf':
+                // PDFとして保存
+                const { jsPDF } = window.jspdf;
+                const pdf = new jsPDF({
+                    orientation: outputSize.height > outputSize.width ? 'portrait' : 'landscape',
+                    unit: 'px',
+                    format: [outputSize.width, outputSize.height]
+                });
+                
+                pdf.addImage(canvas.toDataURL('image/jpeg', 1.0), 'JPEG', 0, 0, outputSize.width, outputSize.height);
+                pdf.save(`converted_${new Date().toISOString().replace(/[:.]/g, '')}.pdf`);
+                break;
+        }
+        
+        updateStatus('変換が正常に完了しました', 'success');
+    } catch (error) {
+        console.error('SVG変換エラー:', error);
+        updateStatus(`SVG変換エラー: ${error.message}`, 'error');
+    }
+}
+
+// HTMLファイルの変換
+async function convertHtmlFile(htmlContent, outputSize) {
+    // 一時的なiframeを作成して変換
+    const tempFrame = document.createElement('iframe');
+    tempFrame.style.position = 'absolute';
+    tempFrame.style.left = '-9999px';
+    document.body.appendChild(tempFrame);
+    
+    const frameDoc = tempFrame.contentDocument || tempFrame.contentWindow.document;
+    frameDoc.open();
+    frameDoc.write(htmlContent);
+    frameDoc.close();
+    
+    try {
+        // ページ選択オプションを取得
+        const pageSelection = document.querySelector('input[name="page-selection"]:checked').value;
+        const selectedPageNumber = parseInt(document.getElementById('page-number').value) || 1;
+        
+        // ページの検出
+        const pages = getPages(frameDoc);
+        
+        if (pageSelection === 'single' && selectedPageNumber > pages.length) {
+            throw new Error(`選択したページ番号 (${selectedPageNumber}) が無効です`);
+        }
+        
+        // 変換処理
+        switch(selectedFormat) {
+            case 'pdf':
+                await convertToPdf(pages, outputSize, pageSelection, selectedPageNumber);
+                break;
+            case 'jpg':
+                await convertToJpg(pages, outputSize, pageSelection, selectedPageNumber);
+                break;
+            case 'svg':
+                await convertToSvg(pages, outputSize, pageSelection, selectedPageNumber);
+                break;
+        }
+        
+        updateStatus('変換が正常に完了しました', 'success');
+    } catch (error) {
+        console.error('HTML変換エラー:', error);
+        updateStatus(`変換エラー: ${error.message}`, 'error');
+    } finally {
+        // 一時フレームを削除
+        document.body.removeChild(tempFrame);
+    }
+}
+
+// ページ要素の取得
+function getPages(doc) {
+    // スライドまたはページのセレクター
+    const selectors = [
+        'div.slide', 'div[id^="slide"]', 'section.slide',
+        'div.page', 'div[id^="page"]', 'section.page', 'article.page'
+    ];
+    
+    for (const selector of selectors) {
+        const pages = Array.from(doc.querySelectorAll(selector));
+        if (pages.length > 0) return pages;
+    }
+    
+    // ページが見つからない場合はbodyを返す
+    return [doc.body];
+}
+
+// PDFへの変換
+async function convertToPdf(pages, outputSize, pageSelection, selectedPageNumber) {
+    const { jsPDF } = window.jspdf;
+    const pdf = new jsPDF({
+        orientation: outputSize.height > outputSize.width ? 'portrait' : 'landscape',
+        unit: 'px',
+        format: [outputSize.width, outputSize.height]
+    });
+    
+    const pagesToConvert = pageSelection === 'all' 
+        ? pages 
+        : [pages[selectedPageNumber - 1]];
+    
+    for (const page of pagesToConvert) {
+        const canvas = await html2canvas(page, {
+            scale: 2,
+            useCORS: true,
+            allowTaint: true,
+            width: outputSize.width,
+            height: outputSize.height
+        });
+        
+        // 最初のページでない場合は新しいページを追加
+        if (pagesToConvert.indexOf(page) > 0) {
+            pdf.addPage();
+        }
+        
+        pdf.addImage(
+            canvas.toDataURL('image/jpeg', 1.0), 
+            'JPEG', 
+            0, 
+            0, 
+            outputSize.width, 
+            outputSize.height
+        );
+    }
+    
+    pdf.save(`converted_${new Date().toISOString().replace(/[:.]/g, '')}.pdf`);
+}
+
+// JPGへの変換
+async function convertToJpg(pages, outputSize, pageSelection, selectedPageNumber) {
+    const pagesToConvert = pageSelection === 'all' 
+        ? pages 
+        : [pages[selectedPageNumber - 1]];
+    
+    // 複数ページの場合はZIPで保存
+    if (pagesToConvert.length > 1) {
+        const zip = new JSZip();
+        
+        for (let i = 0; i < pagesToConvert.length; i++) {
+            const page = pagesToConvert[i];
+            const canvas = await html2canvas(page, {
+                scale: 2,
+                useCORS: true,
+                allowTaint: true,
+                width: outputSize.width,
+                height: outputSize.height
+            });
+            
+            // JPGデータをZIPに追加
+            const dataUrl = canvas.toDataURL('image/jpeg', outputQuality);
+            const base64Data = dataUrl.split(',')[1];
+            zip.file(`page_${(i + 1).toString().padStart(3, '0')}.jpg`, base64Data, {base64: true});
+        }
+        
+        // ZIPファイルを生成してダウンロード
+        const content = await zip.generateAsync({ type: 'blob' });
+        saveAs(content, `converted_${new Date().toISOString().replace(/[:.]/g, '')}.zip`);
+    } else {
+        // 単一ページの場合は直接ダウンロード
+        const page = pagesToConvert[0];
+        const canvas = await html2canvas(page, {
+            scale: 2,
+            useCORS: true,
+            allowTaint: true,
+            width: outputSize.width,
+            height: outputSize.height
+        });
+        
+        const dataUrl = canvas.toDataURL('image/jpeg', outputQuality);
+        const link = document.createElement('a');
+        link.href = dataUrl;
+        link.download = `converted_${new Date().toISOString().replace(/[:.]/g, '')}.jpg`;
+        link.click();
+    }
+}
+
+// SVGへの変換
+async function convertToSvg(pages, outputSize, pageSelection, selectedPageNumber) {
+    const pagesToConvert = pageSelection === 'all' 
+        ? pages 
+        : [pages[selectedPageNumber - 1]];
+    
+    // 複数ページの場合はZIPで保存
+    if (pagesToConvert.length > 1) {
+        const zip = new JSZip();
+        
+        for (let i = 0; i < pagesToConvert.length; i++) {
+            const page = pagesToConvert[i];
+            const svgDataUrl = await domtoimage.toSvg(page, {
+                width: outputSize.width,
+                height: outputSize.height
+            });
+            
+            // SVGデータをZIP
+        const estimatedTime = estimateConversionTime(pageCount, format);
+    
+    if (hasMultiplePages) {
+        estimatedTimeEl.textContent = `推定変換時間: ${estimatedTime}`;
+    } else {
+        estimatedTimeEl.textContent = '';
+    }
+}
+
+// 変換時間の推定
+function estimateConversionTime(totalPages, format) {
+    // ページ数と形式に基づいて変換時間を推定
+    const baseTime = 1; // 初期処理の基本時間
+    let timePerPage = 0;
+
+    switch(format) {
+        case 'pdf':
+            timePerPage = 0.5; // PDFは比較的軽い
+            break;
+        case 'jpg':
+            timePerPage = 1; // JPGは少し重い
+            break;
+        case 'svg':
+            timePerPage = 0.3; // SVGは最も軽い
+            break;
+        default:
+            timePerPage = 0.5;
+    }
+
+    // 処理時間を計算
+    const totalTime = baseTime + (totalPages * timePerPage);
+    
+    // 時間を整形
+    if (totalTime < 1) {
+        return '1秒未満';
+    } else if (totalTime < 60) {
+        return `約${Math.round(totalTime)}秒`;
+    } else {
+        const minutes = Math.floor(totalTime / 60);
+        const seconds = Math.round(totalTime % 60);
+        return `約${minutes}分${seconds}秒`;
+    }
+}
+
+// プレビュー生成
+async function renderPreview() {
+    const htmlPreview = document.getElementById('html-preview');
+    const convertBtn = document.getElementById('convert-btn');
+    const fileInput = document.getElementById('html-file');
+    const sizeInfo = document.getElementById('size-info');
+    
+    // プレビューをクリア
+    htmlPreview.innerHTML = '';
+    
+    // 出力サイズを設定
+    const outputSize = outputSizes[window.selectedSize];
+    
+    try {
+        const fileExt = fileInput.files[0]?.name.split('.').pop().toLowerCase();
+        
+        if (fileExt === 'svg') {
+            // SVGファイルの処理
+            htmlPreview.innerHTML = htmlContent;
+            const svgElement = htmlPreview.querySelector('svg');
+            
+            if (svgElement) {
+                // 選択されたサイズを適用
+                window.originalWidth = outputSize.width;
+                window.originalHeight = outputSize.height;
+                
+                // サイズ情報を表示
+                sizeInfo.textContent = `出力サイズ: ${outputSize.width} × ${outputSize.height} px`;
+                
+                // プレビュー要素にサイズを設定
+                htmlPreview.style.width = `${outputSize.width}px`;
+                htmlPreview.style.height = `${outputSize.height}px`;
+                
+                // SVGにスタイルを適用
+                svgElement.setAttribute('width', outputSize.width);
+                svgElement.setAttribute('height', outputSize.height);
+                svgElement.setAttribute('preserveAspectRatio', 'xMidYMid meet');
+                svgElement.style.width = '100%';
+                svgElement.style.height = '100%';
+                svgElement.style.display = 'block';
+            }
+            
+            updateStatus('プレビューが正常に生成されました', 'success');
+            convertBtn.disabled = false;
+            
+        } else {
+            // HTMLファイルの処理
+            const iframeContainer = document.createElement('div');
+            iframeContainer.style.width = '100%';
+            iframeContainer.style.height = '100%';
+            
+            const iframe = document.createElement('iframe');
+            iframe.style.width = '100%';
+            iframe.style.height = '100%';
+            iframe.style.border = 'none';
+            
+            htmlPreview.appendChild(iframe);
+            
+            // iframeにコンテンツを書き込む
+            const iframeDoc = iframe.contentDocument || iframe.contentWindow.document;
+            iframeDoc.open();
+            iframeDoc.write(htmlContent);
+            iframeDoc.close();
+            
+            // サイズ情報を表示
+            sizeInfo.textContent = `出力サイズ: ${outputSize.width} × ${outputSize.height} px`;
+            
+            updateStatus('プレビューが正常に生成されました', 'success');
+            convertBtn.disabled = false;
+        }
+        
+        // 推定変換時間を表示
+        const estimatedTimeEl = document.getElementById('estimated-time');
+        const format = selectedFormat || 'pdf';
+        const pageCount = document.getElementById('page-info').textContent.match(/\d+/)?.[0] || 1;
+        const estimatedTime = estimateConversionTime(parseInt(pageCount), format);
+        
+        estimatedTimeEl.textContent = `推定変換時間: ${estimatedTime}`;
+    } catch (error) {
+        console.error('プレビュー生成エラー:', error);
+        updateStatus(`プレビュー生成エラー: ${error.message}`, 'error');
+        convertBtn.disabled = true;
+    }
+}
+
+// 変換処理
+async function convertAndDownload() {
+    const fileInput = document.getElementById('html-file');
+    const fileExt = fileInput.files[0]?.name.split('.').pop().toLowerCase();
+    const outputSize = outputSizes[window.selectedSize];
+    
+    updateStatus('変換処理を開始します...', 'info', true);
+    
+    try {
+        if (fileExt === 'svg') {
+            // SVGファイルの変換
+            await convertSvgFile(htmlContent, outputSize);
+        } else {
+            // HTMLファイルの変換
+            await convertHtmlFile(htmlContent, outputSize);
+        }
+    } catch (error) {
+        console.error('変換エラー:', error);
+        updateStatus(`変換中にエラーが発生しました: ${error.message}`, 'error');
+    }
+}
+
+// SVGファイルの変換
+async function convertSvgFile(svgContent, outputSize) {
+    try {
+        // SVGをCanvasに変換
+        const img = new Image();
+        img.src = `data:image/svg+xml;base64,${btoa(svgContent)}`;
+        
+        await new Promise((resolve, reject) => {
+            img.onload = resolve;
+            img.onerror = reject;
+        });
+        
+        const canvas = document.createElement('canvas');
+        canvas.width = outputSize.width;
+        canvas.height = outputSize.height;
+        
+        const ctx = canvas.getContext('2d');
+        ctx.drawImage(img, 0, 0, outputSize.width, outputSize.height);
+        
+        // 選択した形式で保存
+        switch(selectedFormat) {
+            case 'svg':
+                // そのままSVGとして保存
+                const blob = new Blob([svgContent], {type: 'image/svg+xml'});
+                saveAs(blob, `converted_${new Date().toISOString().replace(/[:.]/g, '')}.svg`);
+                break;
+            case 'jpg':
+                // JPGとして保存
+                const jpgDataUrl = canvas.toDataURL('image/jpeg', outputQuality);
+                const jpgLink = document.createElement('a');
+                jpgLink.href = jpgDataUrl;
+                jpgLink.download = `converted_${new Date().toISOString().replace(/[:.]/g, '')}.jpg`;
+                jpgLink.click();
+                break;
+            case 'pdf':
+                // PDFとして保存
+                const { jsPDF } = window.jspdf;
+                const pdf = new jsPDF({
+                    orientation: outputSize.height > outputSize.width ? 'portrait' : 'landscape',
+                    unit: 'px',
+                    format: [outputSize.width, outputSize.height]
+                });
+                
+                pdf.addImage(canvas.toDataURL('image/jpeg', 1.0), 'JPEG', 0, 0, outputSize.width, outputSize.height);
+                pdf.save(`converted_${new Date().toISOString().replace(/[:.]/g, '')}.pdf`);
+                break;
+        }
+        
+        updateStatus('変換が正常に完了しました', 'success');
+    } catch (error) {
+        console.error('SVG変換エラー:', error);
+        updateStatus(`SVG変換エラー: ${error.message}`, 'error');
+    }
+}
+
+// ページ要素の取得
+function getPages(doc) {
+    // スライドまたはページのセレクター
+    const selectors = [
+        'div.slide', 'div[id^="slide"]', 'section.slide',
+        'div.page', 'div[id^="page"]', 'section.page', 'article.page'
+    ];
+    
+    for (const selector of selectors) {
+        const pages = Array.from(doc.querySelectorAll(selector));
+        if (pages.length > 0) return pages;
+    }
+    
+    // ページが見つからない場合はbodyを返す
+    return [doc.body];
 }
 
 // イベントリスナーの設定
 document.addEventListener('DOMContentLoaded', function() {
-    // ファイルアップロードハンドラー
+    // ファイル入力
     const fileInput = document.getElementById('html-file');
-    if (fileInput) {
-        fileInput.addEventListener('change', handleFileUpload);
-    }
+    fileInput.addEventListener('change', handleFileUpload);
+    
+    // ドラッグ&ドロップのサポート
+    const dropZone = fileInput.closest('.border-2');
+    
+    dropZone.addEventListener('dragover', (e) => {
+        e.preventDefault();
+        dropZone.classList.add('border-blue-500', 'bg-blue-50/10');
+    });
+    
+    dropZone.addEventListener('dragleave', () => {
+        dropZone.classList.remove('border-blue-500', 'bg-blue-50/10');
+    });
+    
+    dropZone.addEventListener('drop', (e) => {
+        e.preventDefault();
+        dropZone.classList.remove('border-blue-500', 'bg-blue-50/10');
+        
+        // ファイルを設定
+        fileInput.files = e.dataTransfer.files;
+        
+        // changeイベントを発火
+        const event = new Event('change');
+        fileInput.dispatchEvent(event);
+    });
     
     // プレビューボタン
     const previewBtn = document.getElementById('preview-btn');
-    if (previewBtn) {
-        previewBtn.addEventListener('click', renderPreview);
-    }
+    previewBtn.addEventListener('click', renderPreview);
     
     // 変換ボタン
     const convertBtn = document.getElementById('convert-btn');
-    if (convertBtn) {
-        convertBtn.addEventListener('click', convertAndDownload);
-    }
+    convertBtn.addEventListener('click', convertAndDownload);
     
     // サイズ選択ボタン
     document.querySelectorAll('.size-button').forEach(btn => {
         btn.addEventListener('click', function() {
-            selectSize(this.getAttribute('data-size'));
+            const size = this.getAttribute('data-size');
+            selectSize(size);
         });
     });
     
     // 形式選択ボタン
     document.querySelectorAll('.format-button').forEach(btn => {
         btn.addEventListener('click', function() {
-            selectFormat(this.getAttribute('data-format'));
+            const format = this.getAttribute('data-format');
+            selectFormat(format);
         });
     });
     
     // 品質スライダー
     const qualitySlider = document.getElementById('quality-slider');
-    if (qualitySlider) {
-        qualitySlider.addEventListener('input', function() {
-            const qualityValue = document.getElementById('quality-value');
-            qualityValue.textContent = `${this.value}%`;
-            outputQuality = this.value / 100;
-        });
-    }
+    qualitySlider.addEventListener('input', function() {
+        const qualityValue = document.getElementById('quality-value');
+        qualityValue.textContent = `${this.value}%`;
+        outputQuality = this.value / 100;
+    });
     
-    // 初期状態を設定
+    // 初期状態の設定
     selectSize('a4');
     selectFormat('pdf');
 });
 
-// 以降の関数（convertAndDownload、getPages、その他の変換関連の関数）は次のセクションで続けます
+// デバッグ用のグローバル関数
+window.debugConverter = {
+    getHtmlContent: () => htmlContent,
+    getSelectedFormat: () => selectedFormat,
+    getOutputQuality: () => outputQuality
+};
