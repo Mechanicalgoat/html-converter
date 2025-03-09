@@ -299,6 +299,45 @@
             visibility: visible;
             opacity: 1;
         }
+        
+        .image-thumb {
+            display: inline-block;
+            margin: 5px;
+            border: 1px solid #ddd;
+            padding: 3px;
+            border-radius: 3px;
+            position: relative;
+        }
+        
+        .image-thumb img {
+            height: 40px;
+            vertical-align: middle;
+        }
+        
+        .image-thumb .image-name {
+            display: inline-block;
+            max-width: 150px;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+            vertical-align: middle;
+            margin-left: 5px;
+        }
+        
+        .image-thumb .remove-btn {
+            position: absolute;
+            top: -8px;
+            right: -8px;
+            background: #ff4444;
+            color: white;
+            border-radius: 50%;
+            width: 20px;
+            height: 20px;
+            line-height: 20px;
+            text-align: center;
+            font-size: 12px;
+            cursor: pointer;
+        }
     </style>
 </head>
 <body>
@@ -317,6 +356,16 @@
                 </div>
                 <div id="file-name"></div>
                 <div id="page-info" style="color: #666; margin-top: 5px; font-style: italic;"></div>
+            </div>
+            
+            <div class="step">
+                <span class="step-number">1.5</span>
+                <label for="image-files">追加の画像ファイル (オプション): <span class="tooltip">?<span class="tooltip-text">HTMLファイル内から参照されている画像をアップロードします。画像のファイル名がHTMLファイル内の参照と一致している必要があります。</span></span></label>
+                <div class="file-upload">
+                    画像を選択
+                    <input type="file" id="image-files" accept="image/*" multiple onchange="handleImageUpload()">
+                </div>
+                <div id="image-list" style="margin-top: 10px;"></div>
             </div>
             
             <div class="step" id="page-options" style="display: none;">
@@ -398,6 +447,8 @@
         window.isSlideFormat = false;
         // 印刷用の最適化フラグ
         window.optimizeForPrint = false;
+        // アップロードされた画像を保存するオブジェクト
+        window.uploadedImages = {};
         
         // フォーマット選択
         function selectFormat(format) {
@@ -416,15 +467,222 @@
             window.optimizeForPrint = document.getElementById('optimize-for-print').checked;
         }
         
+        // 画像をプリロードする関数
+        function preloadImages(htmlContent, callback) {
+            const tempContainer = document.createElement('div');
+            tempContainer.innerHTML = htmlContent;
+            
+            // すべての画像要素を取得
+            const images = tempContainer.querySelectorAll('img');
+            let imagesToLoad = images.length;
+            
+            // 画像がない場合は即時コールバック
+            if (imagesToLoad === 0) {
+                callback(htmlContent);
+                return;
+            }
+            
+            // 進捗表示
+            const statusMessage = document.getElementById('status-message');
+            statusMessage.textContent = `画像をロード中... (0/${imagesToLoad})`;
+            statusMessage.className = '';
+            statusMessage.classList.remove('hidden');
+            
+            // Base64画像の変換リスト
+            const imageMap = new Map();
+            let loadedCount = 0;
+            
+            // 各画像をBase64に変換
+            images.forEach(img => {
+                const originalSrc = img.getAttribute('src');
+                if (!originalSrc || originalSrc.startsWith('data:') || originalSrc.startsWith('blob:')) {
+                    // すでにデータURLやblobの場合はスキップ
+                    imagesToLoad--;
+                    if (imagesToLoad === 0) {
+                        finishProcessing();
+                    }
+                    return;
+                }
+                
+                // アップロード済みの画像からマッチするものを探す
+                const imageName = originalSrc.split('/').pop();
+                if (window.uploadedImages[imageName]) {
+                    imageMap.set(originalSrc, window.uploadedImages[imageName]);
+                    loadedCount++;
+                    statusMessage.textContent = `画像をロード中... (${loadedCount}/${imagesToLoad})`;
+                    
+                    if (loadedCount === imagesToLoad) {
+                        finishProcessing();
+                    }
+                    return;
+                }
+                
+                // ローカルファイルパスを絶対URLに変換する試み
+                let imgSrc = originalSrc;
+                if (imgSrc.startsWith('./')) {
+                    imgSrc = imgSrc.substring(2);
+                }
+                
+                // 画像を読み込み、Base64に変換
+                const imgElement = new Image();
+                imgElement.crossOrigin = 'anonymous';  // CORS対応
+                
+                imgElement.onload = function() {
+                    try {
+                        const canvas = document.createElement('canvas');
+                        canvas.width = imgElement.width;
+                        canvas.height = imgElement.height;
+                        const ctx = canvas.getContext('2d');
+                        ctx.drawImage(imgElement, 0, 0);
+                        const dataURL = canvas.toDataURL('image/png');
+                        imageMap.set(originalSrc, dataURL);
+                        
+                        loadedCount++;
+                        statusMessage.textContent = `画像をロード中... (${loadedCount}/${imagesToLoad})`;
+                        
+                        if (loadedCount === imagesToLoad) {
+                            finishProcessing();
+                        }
+                    } catch (error) {
+                        console.error('画像変換エラー:', error, originalSrc);
+                        loadedCount++;
+                        if (loadedCount === imagesToLoad) {
+                            finishProcessing();
+                        }
+                    }
+                };
+                
+                imgElement.onerror = function() {
+                    console.warn('画像の読み込みに失敗しました:', imgSrc);
+                    loadedCount++;
+                    if (loadedCount === imagesToLoad) {
+                        finishProcessing();
+                    }
+                };
+                
+                // 読み込み開始
+                imgElement.src = imgSrc;
+                
+                // 一定時間後にタイムアウト処理
+                setTimeout(() => {
+                    if (imgElement.complete) return;
+                    imgElement.src = '';
+                    console.warn('画像の読み込みがタイムアウトしました:', imgSrc);
+                    loadedCount++;
+                    if (loadedCount === imagesToLoad) {
+                        finishProcessing();
+                    }
+                }, 5000);
+            });
+            
+            // すべての画像処理が完了したら実行
+            function finishProcessing() {
+                // HTMLコンテンツ内の画像パスをBase64に置き換え
+                let processedHTML = htmlContent;
+                imageMap.forEach((dataURL, originalSrc) => {
+                    const escapedSrc = originalSrc.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+                    const regex = new RegExp(`src=["']${escapedSrc}["']`, 'g');
+                    processedHTML = processedHTML.replace(regex, `src="${dataURL}"`);
+                });
+                
+                callback(processedHTML);
+                statusMessage.textContent = '画像の処理が完了しました。';
+                statusMessage.className = 'success';
+            }
+        }
+        
+        // 追加の画像ファイルアップロード処理
+        function handleImageUpload() {
+            const imageInput = document.getElementById('image-files');
+            const imageList = document.getElementById('image-list');
+            
+            if (imageInput.files.length > 0) {
+                // アップロードされた画像の一覧を表示
+                imageList.innerHTML = '<div>選択された画像:</div>';
+                const imageContainer = document.createElement('div');
+                imageContainer.style.marginTop = '10px';
+                imageList.appendChild(imageContainer);
+                
+                // グローバル変数で画像を保存
+                window.uploadedImages = window.uploadedImages || {};
+                
+                Array.from(imageInput.files).forEach(file => {
+                    const reader = new FileReader();
+                    reader.onload = function(e) {
+                        // 画像をBase64で保存
+                        const filename = file.name;
+                        window.uploadedImages[filename] = e.target.result;
+                        
+                        // サムネイルを表示
+                        const thumb = document.createElement('div');
+                        thumb.className = 'image-thumb';
+                        thumb.innerHTML = `
+                            <img src="${e.target.result}" alt="${filename}">
+                            <span class="image-name">${filename}</span>
+                            <span class="remove-btn" onclick="removeImage('${filename}')">×</span>
+                        `;
+                        imageContainer.appendChild(thumb);
+                    };
+                    reader.readAsDataURL(file);
+                });
+            }
+        }
+        
+        // アップロードされた画像を削除
+        function removeImage(filename) {
+            if (window.uploadedImages && window.uploadedImages[filename]) {
+                delete window.uploadedImages[filename];
+                
+                // 画像リストからも削除
+                const imageElements = document.querySelectorAll('.image-thumb');
+                imageElements.forEach(el => {
+                    if (el.querySelector('.image-name').textContent === filename) {
+                        el.remove();
+                    }
+                });
+            }
+        }
+        
+        // HTMLコンテンツをレンダリングする前に、アップロードされた画像の参照を置き換える
+        function replaceUploadedImageReferences(content) {
+            if (!window.uploadedImages || Object.keys(window.uploadedImages).length === 0) {
+                return content;
+            }
+            
+            let modifiedContent = content;
+            
+            // アップロードされた各画像について処理
+            Object.keys(window.uploadedImages).forEach(filename => {
+                const escapedFilename = filename.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+                // 相対パスと絶対パスの両方に対応
+                const patterns = [
+                    new RegExp(`src=["'][^"']*/${escapedFilename}["']`, 'gi'),
+                    new RegExp(`src=["']${escapedFilename}["']`, 'gi')
+                ];
+                
+                patterns.forEach(regex => {
+                    modifiedContent = modifiedContent.replace(regex, `src="${window.uploadedImages[filename]}"`);
+                });
+            });
+            
+            return modifiedContent;
+        }
+        
         // ファイルアップロード処理
         function handleFileUpload() {
             const fileInput = document.getElementById('html-file');
             const fileNameDisplay = document.getElementById('file-name');
             const previewBtn = document.getElementById('preview-btn');
+            const statusMessage = document.getElementById('status-message');
             
             if (fileInput.files.length > 0) {
                 const file = fileInput.files[0];
                 fileNameDisplay.textContent = file.name;
+                
+                // ステータスメッセージを初期化して表示
+                statusMessage.textContent = 'ファイルを読み込んでいます...';
+                statusMessage.className = '';
+                statusMessage.classList.remove('hidden');
                 
                 // ファイル拡張子を取得
                 const fileExt = file.name.split('.').pop().toLowerCase();
@@ -437,6 +695,9 @@
                         previewBtn.disabled = false;
                         // SVG形式を選択
                         selectFormat('svg');
+                        
+                        statusMessage.textContent = 'SVGファイルの読み込みが完了しました。';
+                        statusMessage.className = 'success';
                     };
                     reader.readAsText(file);
                 } 
@@ -444,11 +705,19 @@
                 else if (fileExt === 'html' || fileExt === 'htm') {
                     const reader = new FileReader();
                     reader.onload = function(e) {
-                        htmlContent = e.target.result;
-                        previewBtn.disabled = false;
+                        const content = e.target.result;
                         
-                        // 複数ページが含まれているか確認
-                        checkMultiplePages(htmlContent);
+                        // アップロードされた画像の参照を置き換え
+                        const processedContent = replaceUploadedImageReferences(content);
+                        
+                        // 画像をプリロードして処理
+                        preloadImages(processedContent, function(finalContent) {
+                            htmlContent = finalContent;
+                            previewBtn.disabled = false;
+                            
+                            // 複数ページが含まれているか確認
+                            checkMultiplePages(htmlContent);
+                        });
                     };
                     reader.readAsText(file);
                 }
@@ -456,6 +725,9 @@
                 else {
                     fileNameDisplay.textContent = 'サポートされていないファイル形式です';
                     previewBtn.disabled = true;
+                    
+                    statusMessage.textContent = 'エラー: サポートされていないファイル形式です。HTMLまたはSVGファイルを選択してください。';
+                    statusMessage.className = 'error';
                 }
             } else {
                 fileNameDisplay.textContent = '';
@@ -585,6 +857,12 @@
             const htmlPreview = document.getElementById('html-preview');
             const convertBtn = document.getElementById('convert-btn');
             const fileInput = document.getElementById('html-file');
+            const statusMessage = document.getElementById('status-message');
+            
+            // ステータスメッセージを表示
+            statusMessage.textContent = 'プレビューを生成中...';
+            statusMessage.className = '';
+            statusMessage.classList.remove('hidden');
             
             let fileExt = '';
             if (fileInput.files.length > 0) {
@@ -637,6 +915,10 @@
                     svgElement.style.height = '100%';
                     svgElement.style.display = 'block';
                 }
+                
+                // プレビュー完了メッセージ
+                statusMessage.textContent = 'プレビューが完了しました。';
+                statusMessage.className = 'success';
             } else {
                 // HTML場合はiframeで表示
                 const contentFrame = document.createElement('iframe');
@@ -798,8 +1080,6 @@
                 if (height < 300) height = 600;
                 
                 // 最大値の制限（ブラウザの表示領域を考慮）
-                const max
-                // 最大値の制限（ブラウザの表示領域を考慮）
                 const maxWidth = window.innerWidth * 0.85;
                 const maxHeight = window.innerHeight * 0.7;
                 
@@ -842,6 +1122,10 @@
                 
                 // 複数ページが含まれているか再確認
                 checkMultiplePages(htmlContent);
+                
+                // プレビュー完了メッセージ
+                statusMessage.textContent = 'プレビューが完了しました。';
+                statusMessage.className = 'success';
             }
             
             // プレビューコンテナの調整
@@ -1517,7 +1801,7 @@
                         try {
                             const serializer = new XMLSerializer();
                             let svgContent = '<?xml version="1.0" encoding="UTF-8" standalone="no"?>\n';
-            // HTMLをSVGに変換
+                            // HTMLをSVGに変換
                             const pageElement = pages[pageIndex];
                             const svgElement = document.createElementNS("http://www.w3.org/2000/svg", "svg");
                             svgElement.setAttribute("xmlns", "http://www.w3.org/2000/svg");
@@ -1681,6 +1965,12 @@
                         this.value === 'selected' ? 'block' : 'none';
                 });
             });
+            
+            // ステータスメッセージを初期化
+            const statusMessage = document.getElementById('status-message');
+            statusMessage.textContent = 'HTMLまたはSVGファイルをアップロードしてください。';
+            statusMessage.className = '';
+            statusMessage.classList.remove('hidden');
             
             // 初期化
             updateQualityValue();
